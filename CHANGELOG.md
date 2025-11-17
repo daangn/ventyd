@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.9.1
+
+### Patch Changes
+
+- 8b6170c: chore: transfer ownership to `daangn`
+
 ## 1.9.0
 
 ### Minor Changes
