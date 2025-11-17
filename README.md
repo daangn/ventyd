@@ -678,7 +678,7 @@ const userSchema = defineSchema("user", {
 
 **Important:** When using `standard()` directly, you must manually include all event metadata fields (`eventId`, `eventName`, `eventCreatedAt`, `entityName`, `entityId`, `body`) in your event schemas. Official integrations like `valibot()`, `zod()`, `arktype()`, and `typebox()` add these automatically.
 
-Want an official integration for your favorite library? [Open an issue](https://github.com/tonyfromundefined/ventyd/issues) to let us know!
+Want an official integration for your favorite library? [Open an issue](https://github.com/daangn/ventyd/issues) to let us know!
 
 ## Storage Adapters
 
