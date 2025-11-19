@@ -29,7 +29,7 @@ export type EntityConstructorArgs<$$Schema> =
       type: "load";
       entityId: string;
       state: InferStateFromSchema<$$Schema>;
-      mutable?: true;
+      UNSAFE_mutable?: true;
     }
   | {
       type: "loadFromEvents";
@@ -73,7 +73,7 @@ export interface EntityConstructor<$$Schema> {
     args: {
       entityId: string;
       state: InferStateFromSchema<$$Schema>;
-      mutable: true;
+      UNSAFE_mutable: true;
     },
   ): T;
   load<T extends Entity<$$Schema>>(
