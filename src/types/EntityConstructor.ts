@@ -29,6 +29,7 @@ export type EntityConstructorArgs<$$Schema> =
       type: "load";
       entityId: string;
       state: InferStateFromSchema<$$Schema>;
+      mutable?: true;
     }
   | {
       type: "loadFromEvents";
@@ -65,7 +66,17 @@ export interface EntityConstructor<$$Schema> {
   /**
    * Loads an entity instance with the given state. (readonly)
    */
-  load: <T extends Entity<$$Schema>>(
+  load<T>(
+    this: new (
+      args: EntityConstructorArgs<$$Schema>,
+    ) => T,
+    args: {
+      entityId: string;
+      state: InferStateFromSchema<$$Schema>;
+      mutable: true;
+    },
+  ): T;
+  load<T extends Entity<$$Schema>>(
     this: new (
       args: EntityConstructorArgs<$$Schema>,
     ) => T,
@@ -73,7 +84,7 @@ export interface EntityConstructor<$$Schema> {
       entityId: string;
       state: InferStateFromSchema<$$Schema>;
     },
-  ) => ReadonlyEntity<T>;
+  ): ReadonlyEntity<T>;
 
   /**
    * @internal

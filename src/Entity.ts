@@ -144,7 +144,7 @@ export function Entity<$$Schema extends DefaultSchema>(
         case "load": {
           this.entityId = args.entityId;
           this[" $$state"] = args.state;
-          this[" $$readonly"] = true;
+          this[" $$readonly"] = !args.mutable;
           break;
         }
 
@@ -193,6 +193,16 @@ export function Entity<$$Schema extends DefaultSchema>(
     /**
      * Loads an entity instance with the given state. (readonly)
      */
+    static load<T>(
+      this: new (
+        args: EntityConstructorArgs<$$Schema>,
+      ) => T,
+      args: {
+        entityId: string;
+        state: InferStateFromSchema<$$Schema>;
+        mutable: true;
+      },
+    ): T;
     static load<T>(
       this: new (
         args: EntityConstructorArgs<$$Schema>,
