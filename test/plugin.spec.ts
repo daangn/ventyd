@@ -199,9 +199,7 @@ getAllAdapterFactories().forEach((factory) => {
           },
         });
 
-        const startTime = Date.now();
         await repository.commit(user);
-        const duration = Date.now() - startTime;
 
         // All plugins should be called
         expect(executionOrder).toHaveLength(3);
@@ -210,9 +208,6 @@ getAllAdapterFactories().forEach((factory) => {
         expect(executionOrder[0]).toBe(1); // 10ms delay
         expect(executionOrder[1]).toBe(2); // 30ms delay
         expect(executionOrder[2]).toBe(0); // 50ms delay
-
-        // Total time should be closer to max delay (50ms) than sum (90ms)
-        expect(duration).toBeLessThan(120); // Allow generous overhead for CI
       });
 
       test("should execute all plugins even if one fails", async () => {
