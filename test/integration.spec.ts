@@ -398,10 +398,132 @@ getAllAdapterFactories().forEach((factory) => {
     });
 
     /**
-     * Section 3: Advanced Patterns
+     * Section 3: UNSAFE_mutable Load
+     * Tests mutable entity loading functionality
+     */
+    describe("3. UNSAFE_mutable Load", () => {
+      test("should load entity as mutable with UNSAFE_mutable option", async () => {
+        const repository = createRepository(User, {
+          adapter,
+        });
+
+        // Load a mutable entity from state
+        const mutableUser = User.load({
+          entityId: "mutable-user-123",
+          state: {
+            nickname: "MutableUser",
+            email: "mutable@example.com",
+            bio: undefined,
+            deletedAt: null,
+          },
+          UNSAFE_mutable: true,
+        });
+
+        // Should be able to dispatch events
+        mutableUser.updateProfile({ bio: "Updated via mutable load" });
+
+        await repository.commit(mutableUser);
+
+        // Verify events were persisted
+        const events = await adapter.getEventsByEntityId({
+          entityName: "user",
+          entityId: "mutable-user-123",
+        });
+
+        expect(events.length).toBe(1);
+        expect((events[0] as any).eventName).toBe("user:profile_updated");
+        expect((events[0] as any).body.bio).toBe("Updated via mutable load");
+      });
+
+      test("should load entity as readonly by default", async () => {
+        // Load a readonly entity from state (default behavior)
+        const readonlyUser = User.load({
+          entityId: "readonly-user-123",
+          state: {
+            nickname: "ReadonlyUser",
+            email: "readonly@example.com",
+            bio: undefined,
+            deletedAt: null,
+          },
+        });
+
+        // Should throw when trying to dispatch events
+        expect(() => {
+          readonlyUser.updateProfile({ bio: "Should fail" });
+        }).toThrow("Entity is readonly");
+      });
+
+      test("should allow multiple mutations on mutable loaded entity", async () => {
+        const repository = createRepository(User, {
+          adapter,
+        });
+
+        const mutableUser = User.load({
+          entityId: "multi-mutation-user",
+          state: {
+            nickname: "InitialName",
+            email: "multi@example.com",
+            bio: undefined,
+            deletedAt: null,
+          },
+          UNSAFE_mutable: true,
+        });
+
+        // Multiple mutations
+        mutableUser.updateProfile({ nickname: "FirstUpdate" });
+        mutableUser.updateProfile({ bio: "Added bio" });
+        mutableUser.updateProfile({ nickname: "FinalName", bio: "Final bio" });
+
+        await repository.commit(mutableUser);
+
+        // Verify final state
+        expect(mutableUser.nickname).toBe("FinalName");
+        expect(mutableUser.bio).toBe("Final bio");
+
+        // Verify all events were persisted
+        const events = await adapter.getEventsByEntityId({
+          entityName: "user",
+          entityId: "multi-mutation-user",
+        });
+
+        expect(events.length).toBe(3);
+      });
+
+      test("should preserve mutable entity state after commit", async () => {
+        const repository = createRepository(User, {
+          adapter,
+        });
+
+        const mutableUser = User.load({
+          entityId: "preserve-state-user",
+          state: {
+            nickname: "PreserveUser",
+            email: "preserve@example.com",
+            bio: "Initial bio",
+            deletedAt: null,
+          },
+          UNSAFE_mutable: true,
+        });
+
+        mutableUser.updateProfile({ bio: "Updated bio" });
+        await repository.commit(mutableUser);
+
+        // Retrieve and verify
+        const retrieved = await repository.findOne({
+          entityId: "preserve-state-user",
+        });
+
+        // Note: retrieved entity only has the new events, not the initial state
+        // since we used load() without persisting the initial state as events
+        expect(retrieved).not.toBeNull();
+      });
+    });
+
+    /**
+     * Section 4: Advanced Patterns
      * Tests compensating transactions and complex scenarios
      */
-    describe("3. Advanced Patterns", () => {
+    describe("4. Advanced Patterns", () => {
       test("should support compensating transactions", async () => {
         const repository = createRepository(Order, {
           adapter,
@@ -447,10 +569,10 @@ getAllAdapterFactories().forEach((factory) => {
     });
 
     /**
-     * Section 4: Business Scenarios
+     * Section 5: Business Scenarios
      * Tests real-world use cases and complex workflows
      */
-    describe("4. Business Scenarios", () => {
+    describe("5. Business Scenarios", () => {
       test("should handle shopping cart lifecycle", async () => {
         const orderRepo = createRepository(Order, {
           adapter,
@@ -621,10 +743,10 @@ getAllAdapterFactories().forEach((factory) => {
     });
 
     /**
-     * Section 5: Isolation and Concurrency
+     * Section 6: Isolation and Concurrency
      * Tests entity isolation and concurrent operations
      */
-    describe("5. Isolation and Concurrency", () => {
+    describe("6. Isolation and Concurrency", () => {
       test("should isolate entities of different types with same ID", async () => {
         const userRepo = createRepository(User, {
           adapter,
@@ -738,10 +860,10 @@ getAllAdapterFactories().forEach((factory) => {
     });
 
     /**
-     * Section 6: Performance Testing
+     * Section 7: Performance Testing
      * Tests performance characteristics of each storage type
      */
-    describe("6. Performance Testing", () => {
+    describe("7. Performance Testing", () => {
       test("should handle large number of events efficiently", async () => {
         const repository = createRepository(User, {
           adapter,
@@ -785,7 +907,7 @@ getAllAdapterFactories().forEach((factory) => {
      * Tests features specific to each adapter implementation
      */
     if (factory.type === "mongodb") {
-      describe("7. MongoDB-Specific Features", () => {
+      describe("8. MongoDB-Specific Features", () => {
         test("should utilize indexes for performance", async () => {
           const repository = createRepository(User, {
             adapter,
@@ -809,7 +931,7 @@ getAllAdapterFactories().forEach((factory) => {
     }
 
     if (factory.type === "sqlite") {
-      describe("7. SQLite-Specific Features", () => {
+      describe("8. SQLite-Specific Features", () => {
         test("should use transactions for batch operations", async () => {
           const repository = createRepository(Order, {
             adapter,

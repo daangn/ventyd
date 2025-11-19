@@ -191,7 +191,34 @@ export function Entity<$$Schema extends DefaultSchema>(
     }
 
     /**
-     * Loads an entity instance with the given state. (readonly)
+     * Loads an entity instance with the given state.
+     *
+     * @remarks
+     * By default, loaded entities are read-only and cannot dispatch events.
+     * This enforces CQRS (Command-Query Responsibility Segregation) by separating
+     * write operations (create/hydrate) from read operations (load from state).
+     *
+     * Use the `UNSAFE_mutable` option to create a mutable entity from state.
+     * This bypasses event sourcing integrity and should only be used in specific
+     * scenarios like migrations or testing.
+     *
+     * @example
+     * ```typescript
+     * // Read-only entity (default)
+     * const user = User.load({
+     *   entityId: "user-123",
+     *   state: { nickname: "John", email: "john@example.com" }
+     * });
+     * user.updateProfile({ bio: "..." }); // Error: Entity is readonly
+     *
+     * // Mutable entity (use with caution)
+     * const mutableUser = User.load({
+     *   entityId: "user-123",
+     *   state: { nickname: "John", email: "john@example.com" },
+     *   UNSAFE_mutable: true
+     * });
+     * mutableUser.updateProfile({ bio: "..." }); // Works
+     * ```
      */
     static load<T>(
       this: new (
@@ -217,6 +244,8 @@ export function Entity<$$Schema extends DefaultSchema>(
         type: "load",
         entityId: args.entityId,
         state: args.state,
+        UNSAFE_mutable:
+          "UNSAFE_mutable" in args && args.UNSAFE_mutable ? true : undefined,
       }) as ReadonlyEntity<T>;
     }
 

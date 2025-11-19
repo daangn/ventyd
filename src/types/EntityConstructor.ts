@@ -64,7 +64,15 @@ export interface EntityConstructor<$$Schema> {
   ) => T;
 
   /**
-   * Loads an entity instance with the given state. (readonly)
+   * Loads an entity instance with the given state.
+   *
+   * @remarks
+   * By default, loaded entities are read-only and cannot dispatch events.
+   * Use `UNSAFE_mutable: true` to create a mutable entity that can dispatch events.
+   *
+   * @param args.entityId - The unique identifier for the entity
+   * @param args.state - The pre-computed state to load
+   * @param args.UNSAFE_mutable - If true, the loaded entity can dispatch events (use with caution)
    */
   load<T>(
     this: new (
