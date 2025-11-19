@@ -449,7 +449,7 @@ getAllAdapterFactories().forEach((factory) => {
 
         // Should throw when trying to dispatch events
         expect(() => {
-          readonlyUser.updateProfile({ bio: "Should fail" });
+          (readonlyUser as any).updateProfile({ bio: "Should fail" });
         }).toThrow("Entity is readonly");
       });
 

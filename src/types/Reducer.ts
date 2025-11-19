@@ -1,3 +1,4 @@
+import type { BaseEventType } from "./BaseEventType";
 import type { InferEventFromSchema, InferStateFromSchema } from "./Schema";
 
 /**
@@ -12,7 +13,10 @@ import type { InferEventFromSchema, InferStateFromSchema } from "./Schema";
  * given the previous state and an event. They form the core of the event
  * sourcing pattern by defining how events transform entity state.
  */
+
 export type Reducer<$$Schema> = (
   prevState: InferStateFromSchema<$$Schema>,
-  event: InferEventFromSchema<$$Schema> | { eventName: "%unknown%" },
+  event:
+    | InferEventFromSchema<$$Schema>
+    | (BaseEventType & { eventName: "%unknown%" }),
 ) => InferStateFromSchema<$$Schema>;
