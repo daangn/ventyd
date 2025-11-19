@@ -317,6 +317,37 @@ Benefits:
 - Separates write and read models
 - Maintains event sourcing integrity
 
+### Mutable Loaded Entities (UNSAFE_mutable)
+
+In specific scenarios like migrations, testing, or state synchronization, you may need to load an entity from state and still be able to dispatch events. Use the `UNSAFE_mutable` option for this:
+
+```typescript
+// Load a mutable entity from state
+const mutableUser = User.load({
+  entityId: "user-123",
+  state: {
+    nickname: "John",
+    email: "john@example.com",
+    bio: "Engineer"
+  },
+  UNSAFE_mutable: true
+});
+
+// Now you can dispatch events
+mutableUser.updateProfile({ bio: "Senior Engineer" }); // ✅ Works
+
+// Commit the new events
+await userRepository.commit(mutableUser);
+```
+
+**Warning:** This bypasses event sourcing integrity since the loaded state was not derived from events. Use with caution and only in scenarios where you understand the implications:
+
+- **Data migration**: Loading entities from legacy systems
+- **Testing**: Creating test fixtures with specific states
+- **State synchronization**: Syncing state from external sources
+
+The `UNSAFE_` prefix clearly indicates that this operation should be used carefully.
+
 ## Validation Library Support
 
 Ventyd is built on the [Standard Schema](https://standardschema.dev) specification, which provides a unified interface for all validation libraries.

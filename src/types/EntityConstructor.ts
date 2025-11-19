@@ -29,6 +29,7 @@ export type EntityConstructorArgs<$$Schema> =
       type: "load";
       entityId: string;
       state: InferStateFromSchema<$$Schema>;
+      UNSAFE_mutable?: true;
     }
   | {
       type: "loadFromEvents";
@@ -63,9 +64,27 @@ export interface EntityConstructor<$$Schema> {
   ) => T;
 
   /**
-   * Loads an entity instance with the given state. (readonly)
+   * Loads an entity instance with the given state.
+   *
+   * @remarks
+   * By default, loaded entities are read-only and cannot dispatch events.
+   * Use `UNSAFE_mutable: true` to create a mutable entity that can dispatch events.
+   *
+   * @param args.entityId - The unique identifier for the entity
+   * @param args.state - The pre-computed state to load
+   * @param args.UNSAFE_mutable - If true, the loaded entity can dispatch events (use with caution)
    */
-  load: <T extends Entity<$$Schema>>(
+  load<T>(
+    this: new (
+      args: EntityConstructorArgs<$$Schema>,
+    ) => T,
+    args: {
+      entityId: string;
+      state: InferStateFromSchema<$$Schema>;
+      UNSAFE_mutable: true;
+    },
+  ): T;
+  load<T extends Entity<$$Schema>>(
     this: new (
       args: EntityConstructorArgs<$$Schema>,
     ) => T,
@@ -73,7 +92,7 @@ export interface EntityConstructor<$$Schema> {
       entityId: string;
       state: InferStateFromSchema<$$Schema>;
     },
-  ) => ReadonlyEntity<T>;
+  ): ReadonlyEntity<T>;
 
   /**
    * @internal
