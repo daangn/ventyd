@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.10.0
+
+### Minor Changes
+
+- 7e7a1ae: feat: `UNSAFE_mutable` in `Entity.load()`
+
 ## 1.9.1
 
 ### Patch Changes
