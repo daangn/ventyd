@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.12.0
+
+### Minor Changes
+
+- 0b13e84: feat: add ` $$now` method to Entity for consistent timestamp generation
+
 ## 1.11.0
 
 ### Minor Changes
