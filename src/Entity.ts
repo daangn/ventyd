@@ -116,9 +116,6 @@ export function Entity<$$Schema extends DefaultSchema>(
     // ----------------------
     // constructor
     // ----------------------
-    /**
-     * @internal
-     */
     constructor(args: EntityConstructorArgs<$$Schema>) {
       switch (args.type) {
         case "create": {
@@ -168,9 +165,6 @@ export function Entity<$$Schema extends DefaultSchema>(
       }
     }
 
-    /**
-     * Creates a new entity instance with the given initial event body.
-     */
     static create<T>(
       this: new (
         args: EntityConstructorArgs<$$Schema>,
@@ -192,36 +186,6 @@ export function Entity<$$Schema extends DefaultSchema>(
       });
     }
 
-    /**
-     * Loads an entity instance with the given state.
-     *
-     * @remarks
-     * By default, loaded entities are read-only and cannot dispatch events.
-     * This enforces CQRS (Command-Query Responsibility Segregation) by separating
-     * write operations (create/hydrate) from read operations (load from state).
-     *
-     * Use the `UNSAFE_mutable` option to create a mutable entity from state.
-     * This bypasses event sourcing integrity and should only be used in specific
-     * scenarios like migrations or testing.
-     *
-     * @example
-     * ```typescript
-     * // Read-only entity (default)
-     * const user = User.load({
-     *   entityId: "user-123",
-     *   state: { nickname: "John", email: "john@example.com" }
-     * });
-     * user.updateProfile({ bio: "..." }); // Error: Entity is readonly
-     *
-     * // Mutable entity (use with caution)
-     * const mutableUser = User.load({
-     *   entityId: "user-123",
-     *   state: { nickname: "John", email: "john@example.com" },
-     *   UNSAFE_mutable: true
-     * });
-     * mutableUser.updateProfile({ bio: "..." }); // Works
-     * ```
-     */
     static load<T>(
       this: new (
         args: EntityConstructorArgs<$$Schema>,
@@ -251,9 +215,6 @@ export function Entity<$$Schema extends DefaultSchema>(
       }) as ReadonlyEntity<T>;
     }
 
-    /**
-     * @internal
-     */
     static " $$loadFromEvents"<T>(
       this: new (
         args: EntityConstructorArgs<$$Schema>,
@@ -271,39 +232,6 @@ export function Entity<$$Schema extends DefaultSchema>(
       });
     }
 
-    /**
-     * Subscribes to state changes in this entity.
-     *
-     * @param listener - A callback function that will be invoked whenever the entity's state changes
-     * @returns A disposer function that can be called to unsubscribe the listener
-     *
-     * @remarks
-     * The listener is called immediately after each event is dispatched and the state is updated.
-     * Listeners are called synchronously in the order they were registered.
-     *
-     * Multiple listeners can be registered on the same entity.
-     *
-     * @example
-     * ```typescript
-     * const user = User.create({
-     *   body: {
-     *     nickname: "John",
-     *     email: "john@example.com"
-     *   }
-     * });
-     *
-     * // Subscribe to state changes
-     * const unsubscribe = user.subscribe(() => {
-     *   console.log("User state changed:", user.state);
-     * });
-     *
-     * // This will trigger the listener
-     * user.updateProfile({ bio: "Software Engineer" });
-     *
-     * // Unsubscribe when done
-     * unsubscribe();
-     * ```
-     */
     subscribe(listener: () => void): () => void {
       this[" $$listeners"].push(listener);
 

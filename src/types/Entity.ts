@@ -69,7 +69,30 @@ export interface Entity<$$Schema> {
    *
    * @remarks
    * The listener is called immediately after each event is dispatched and the state is updated.
+   * Listeners are called synchronously in the order they were registered.
+   *
    * Multiple listeners can be registered on the same entity.
+   *
+   * @example
+   * ```typescript
+   * const user = User.create({
+   *   body: {
+   *     nickname: "John",
+   *     email: "john@example.com"
+   *   }
+   * });
+   *
+   * // Subscribe to state changes
+   * const unsubscribe = user.subscribe(() => {
+   *   console.log("User state changed:", user.state);
+   * });
+   *
+   * // This will trigger the listener
+   * user.updateProfile({ bio: "Software Engineer" });
+   *
+   * // Unsubscribe when done
+   * unsubscribe();
+   * ```
    */
   subscribe(listener: () => void): () => void;
 
