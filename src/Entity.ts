@@ -110,6 +110,7 @@ export function Entity<$$Schema extends DefaultSchema>(
     " $$queuedEvents": $$Event[] = [];
     " $$reducer": Reducer<$$Schema> = reducer;
     " $$readonly": boolean = false;
+    " $$listeners": (() => void)[] = [];
 
     // ----------------------
     // constructor
@@ -164,6 +165,50 @@ export function Entity<$$Schema extends DefaultSchema>(
           break;
         }
       }
+    }
+
+    /**
+     * Subscribes to state changes in this entity.
+     *
+     * @param listener - A callback function that will be invoked whenever the entity's state changes
+     * @returns A disposer function that can be called to unsubscribe the listener
+     *
+     * @remarks
+     * The listener is called immediately after each event is dispatched and the state is updated.
+     * Listeners are called synchronously in the order they were registered.
+     *
+     * Multiple listeners can be registered on the same entity.
+     *
+     * @example
+     * ```typescript
+     * const user = User.create({
+     *   body: {
+     *     nickname: "John",
+     *     email: "john@example.com"
+     *   }
+     * });
+     *
+     * // Subscribe to state changes
+     * const unsubscribe = user.subscribe(() => {
+     *   console.log("User state changed:", user.state);
+     * });
+     *
+     * // This will trigger the listener
+     * user.updateProfile({ bio: "Software Engineer" });
+     *
+     * // Unsubscribe when done
+     * unsubscribe();
+     * ```
+     */
+    subscribe(listener: () => void): () => void {
+      this[" $$listeners"].push(listener);
+
+      return () => {
+        const index = this[" $$listeners"].indexOf(listener);
+        if (index > -1) {
+          this[" $$listeners"].splice(index, 1);
+        }
+      };
     }
 
     /**
@@ -309,6 +354,11 @@ export function Entity<$$Schema extends DefaultSchema>(
 
       // 3. update state
       this[" $$state"] = reducer(prevState, event);
+
+      // 4. notify listeners
+      for (const listener of this[" $$listeners"]) {
+        listener();
+      }
     }
 
     " $$flush"() {
