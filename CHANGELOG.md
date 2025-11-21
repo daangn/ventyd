@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.11.0
+
+### Minor Changes
+
+- 7bc8989: feat: add state change subscription functionality to entities
+
 ## 1.10.1
 
 ### Patch Changes
