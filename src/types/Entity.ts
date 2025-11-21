@@ -54,6 +54,12 @@ export interface Entity<$$Schema> {
   " $$queuedEvents": InferEventFromSchema<$$Schema>[];
   /** @internal */
   " $$reducer": Reducer<$$Schema>;
+  /** @internal */
+  " $$readonly": boolean;
+  /** @internal */
+  " $$listeners": (() => void)[];
+  /** @internal */
+  " $$now": () => Date;
 
   /**
    * Subscribes to state changes in this entity.
@@ -79,6 +85,24 @@ export interface Entity<$$Schema> {
       eventCreatedAt?: string;
     },
   ) => void;
+
   /** @internal */
   " $$flush": () => void;
+
+  /** @internal */
+  " $$createEvent": <EventName extends InferEventNameFromSchema<$$Schema>>(
+    eventName: EventName,
+    body: InferEventBodyFromSchema<$$Schema, EventName>,
+    options?: {
+      eventId?: string;
+      eventCreatedAt?: string;
+    },
+  ) => {
+    eventId: string;
+    eventCreatedAt: string;
+    eventName: EventName;
+    entityId: string;
+    entityName: InferEntityNameFromSchema<$$Schema>;
+    body: InferEventBodyFromSchema<$$Schema, EventName>;
+  };
 }
