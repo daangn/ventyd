@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.12.1
+
+### Patch Changes
+
+- af4d59a: fix: type
+
 ## 1.12.0
 
 ### Minor Changes

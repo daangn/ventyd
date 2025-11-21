@@ -1,5 +1,0 @@
----
-"ventyd": patch
----
-
-fix: type
