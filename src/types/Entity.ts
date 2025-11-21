@@ -55,30 +55,22 @@ export interface Entity<$$Schema> {
   /** @internal */
   " $$reducer": Reducer<$$Schema>;
 
-  // ----------------------
-  // public methods
-  // ----------------------
-
   /**
-   * Dispatches an event to update the entity's state.
+   * Subscribes to state changes in this entity.
    *
-   * @typeParam EventName - The type of event being dispatched
-   * @param eventName - The fully-qualified event name (e.g., "user:created")
-   * @param body - The event payload conforming to the event's schema
+   * @param listener - A callback function that will be invoked whenever the entity's state changes
+   * @returns A disposer function that can be called to unsubscribe the listener
    *
    * @remarks
-   * Events are queued internally and only persisted when the repository's
-   * commit method is called. This enables batching multiple state transitions
-   * in a single transaction.
-   *
-   * @example
-   * ```typescript
-   * this.dispatch("user:profile_updated", {
-   *   nickname: "NewName",
-   *   bio: "Updated bio"
-   * });
-   * ```
+   * The listener is called immediately after each event is dispatched and the state is updated.
+   * Multiple listeners can be registered on the same entity.
    */
+  subscribe(listener: () => void): () => void;
+
+  // ----------------------
+  // private methods
+  // ----------------------
+  /** @internal */
   " $$dispatch": <K extends InferEventNameFromSchema<$$Schema>>(
     eventName: K,
     body: InferEventBodyFromSchema<$$Schema, K>,
@@ -87,11 +79,6 @@ export interface Entity<$$Schema> {
       eventCreatedAt?: string;
     },
   ) => void;
-
-  // ----------------------
-  // private methods
-  // ----------------------
-
   /** @internal */
   " $$flush": () => void;
 }
