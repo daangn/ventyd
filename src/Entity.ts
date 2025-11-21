@@ -111,6 +111,7 @@ export function Entity<$$Schema extends DefaultSchema>(
     " $$reducer": Reducer<$$Schema> = reducer;
     " $$readonly": boolean = false;
     " $$listeners": (() => void)[] = [];
+    " $$now": () => Date = () => new Date();
 
     // ----------------------
     // constructor
@@ -375,7 +376,8 @@ export function Entity<$$Schema extends DefaultSchema>(
     ) {
       return {
         eventId: options?.eventId ?? generateId(),
-        eventCreatedAt: options?.eventCreatedAt ?? new Date().toISOString(),
+        eventCreatedAt:
+          options?.eventCreatedAt ?? this[" $$now"]().toISOString(),
         eventName,
         entityId: this.entityId,
         entityName: this.entityName,
