@@ -303,6 +303,44 @@ describe("Standard Schema Provider", () => {
     });
   });
 
+  describe("Error message formatting", () => {
+    test("should include event name in validation error", () => {
+      const schema = defineSchema("user", {
+        schema: standard({
+          event: {
+            "user:created": v.object({
+              eventId: v.string(),
+              eventName: v.literal("user:created"),
+              eventCreatedAt: v.string(),
+              entityName: v.string(),
+              entityId: v.string(),
+              body: v.object({
+                email: v.pipe(v.string(), v.email()),
+              }),
+            }),
+          },
+          state: v.object({
+            email: v.string(),
+          }),
+        }),
+        initialEventName: "user:created",
+      });
+
+      expect(() => {
+        schema.parseEventByName("user:created", {
+          eventId: "evt-123",
+          eventName: "user:created",
+          eventCreatedAt: new Date().toISOString(),
+          entityName: "user",
+          entityId: "usr-123",
+          body: {
+            email: "not-an-email",
+          },
+        });
+      }).toThrow('Validation failed: "user:created"');
+    });
+  });
+
   describe("Type inference", () => {
     test("should infer correct event types", () => {
       const schema = defineSchema("product", {
