@@ -898,6 +898,7 @@ describe("Entity Unit Tests", () => {
 
       // State should still be updated despite listener error
       expect(user.state.bio).toBe("New bio");
+      expect(successCallCount).toBe(1);
     });
 
     test("should unsubscribe listener when dispose function is called", () => {
