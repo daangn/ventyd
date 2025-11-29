@@ -1,0 +1,362 @@
+---
+title: Best Practices
+description: Guidelines for effective event sourcing with Ventyd
+---
+
+# Best Practices
+
+Follow these guidelines to build robust event-sourced systems with Ventyd.
+
+## 1. Event Naming
+
+Use past tense to indicate something has happened, be specific and descriptive, and include context in the event name.
+
+### Good Examples
+
+```typescript
+"user:created"
+"order:payment_received"
+"subscription:cancelled"
+```
+
+### Avoid
+
+```typescript
+"createUser"
+"payment"
+"cancel"
+```
+
+**Why:** Past tense clearly indicates that the event represents a fact that has already occurred. Descriptive names make event logs self-documenting.
+
+## 2. Event Granularity
+
+Keep events fine-grained and focused. Each event should represent a single business fact. Avoid "god events" that change multiple aspects.
+
+### Good - Separate events for different concerns
+
+```typescript
+dispatch("order:item_added", { productId, quantity, price });
+dispatch("order:shipping_address_updated", { address });
+```
+
+### Avoid - Too many changes in one event
+
+```typescript
+dispatch("order:updated", { items, address, status, ... });
+```
+
+**Why:** Fine-grained events provide better audit trails, easier event replay, and clearer business logic. They also make it easier to react to specific changes.
+
+## 3. Mutation Methods
+
+Always use the `mutation()` helper and validate before dispatching:
+
+```typescript
+import { Entity, mutation } from 'ventyd';
+
+class Order extends Entity(orderSchema, orderReducer) {
+  ship = mutation(this, (dispatch, trackingNumber: string) => {
+    // Validate business rules
+    if (this.state.status !== "confirmed") {
+      throw new Error("Order must be confirmed before shipping");
+    }
+
+    if (!trackingNumber) {
+      throw new Error("Tracking number is required");
+    }
+
+    // Dispatch after validation
+    dispatch("order:shipped", { trackingNumber });
+  });
+}
+```
+
+**Why:** The `mutation()` helper provides type safety and enforces readonly constraints. Validation before dispatching ensures business rules are never violated.
+
+## 4. Error Handling
+
+Validate business rules before dispatching, use descriptive error messages, never modify state directly, and let the mutation helper enforce readonly constraints.
+
+### Good Error Handling
+
+```typescript
+class BankAccount extends Entity(accountSchema, accountReducer) {
+  withdraw = mutation(this, (dispatch, amount: number) => {
+    if (amount <= 0) {
+      throw new Error("Withdrawal amount must be positive");
+    }
+
+    if (this.state.balance < amount) {
+      throw new Error(
+        `Insufficient funds: current balance is ${this.state.balance}, attempted withdrawal is ${amount}`
+      );
+    }
+
+    if (this.state.isFrozen) {
+      throw new Error("Cannot withdraw from frozen account");
+    }
+
+    dispatch("account:withdrawn", { amount });
+  });
+}
+```
+
+### Avoid
+
+```typescript
+// Don't modify state directly
+this.state.balance -= amount; // ❌ Will cause type error
+
+// Don't dispatch with invalid data
+dispatch("account:withdrawn", { amount: -100 }); // ❌ Violates business rules
+```
+
+**Why:** Proper validation prevents invalid state. Clear error messages help debugging and provide better user experience.
+
+## 5. Reducer Purity
+
+Keep reducers pure - they should be deterministic, have no side effects, and only depend on their inputs.
+
+### Good - Pure Reducer
+
+```typescript
+const userReducer = defineReducer(userSchema, (prevState, event) => {
+  switch (event.eventName) {
+    case "user:created":
+      return {
+        email: event.body.email,
+        createdAt: event.eventCreatedAt, // Use event timestamp
+        loginCount: 0
+      };
+
+    case "user:logged_in":
+      return {
+        ...prevState,
+        loginCount: prevState.loginCount + 1,
+        lastLoginAt: event.eventCreatedAt // Use event timestamp
+      };
+
+    default:
+      return prevState;
+  }
+});
+```
+
+### Avoid - Impure Reducer
+
+```typescript
+const badReducer = defineReducer(userSchema, (prevState, event) => {
+  switch (event.eventName) {
+    case "user:created":
+      return {
+        email: event.body.email,
+        createdAt: new Date().toISOString(), // ❌ Non-deterministic
+        loginCount: 0
+      };
+
+    case "user:logged_in":
+      // ❌ Side effect
+      console.log('User logged in');
+      analytics.track('login'); // ❌ Side effect
+
+      return {
+        ...prevState,
+        loginCount: prevState.loginCount + 1
+      };
+
+    default:
+      return prevState;
+  }
+});
+```
+
+**Why:** Pure reducers ensure that replaying events always produces the same state. This is critical for event sourcing integrity.
+
+## 6. Event Versioning
+
+Plan for schema evolution from the start.
+
+### Strategy 1: Event Versioning
+
+```typescript
+const orderSchema = defineSchema("order", {
+  schema: valibot({
+    event: {
+      // Version 1
+      created: v.object({
+        items: v.array(v.string())
+      }),
+      // Version 2 - More detailed
+      created_v2: v.object({
+        items: v.array(v.object({
+          productId: v.string(),
+          quantity: v.number(),
+          price: v.number()
+        }))
+      })
+    },
+    state: v.object({
+      items: v.array(v.object({
+        productId: v.string(),
+        quantity: v.number(),
+        price: v.number()
+      }))
+    })
+  }),
+  initialEventName: "order:created"
+});
+
+const orderReducer = defineReducer(orderSchema, (prevState, event) => {
+  switch (event.eventName) {
+    case "order:created":
+      // Handle old format
+      return {
+        items: event.body.items.map(id => ({
+          productId: id,
+          quantity: 1,
+          price: 0 // Unknown
+        }))
+      };
+
+    case "order:created_v2":
+      // Handle new format
+      return {
+        items: event.body.items
+      };
+
+    default:
+      return prevState;
+  }
+});
+```
+
+### Strategy 2: Upcasting
+
+```typescript
+const upcastEvent = (event: any) => {
+  if (event.eventName === "order:created" && !event.version) {
+    // Convert v1 to v2 format
+    return {
+      ...event,
+      eventName: "order:created_v2",
+      body: {
+        items: event.body.items.map((id: string) => ({
+          productId: id,
+          quantity: 1,
+          price: 0
+        }))
+      }
+    };
+  }
+  return event;
+};
+```
+
+**Why:** Event schemas will evolve over time. Planning for versioning prevents breaking changes and allows graceful migrations.
+
+## 7. State Snapshots (Performance Optimization)
+
+For entities with many events, consider storing state snapshots to avoid replaying all events:
+
+```typescript
+interface SnapshotAdapter extends Adapter {
+  getSnapshot(entityName: string, entityId: string): Promise<{
+    state: any;
+    lastEventId: string;
+  } | null>;
+
+  saveSnapshot(
+    entityName: string,
+    entityId: string,
+    state: any,
+    lastEventId: string
+  ): Promise<void>;
+}
+
+const createSnapshotAdapter = (baseAdapter: Adapter): SnapshotAdapter => {
+  const snapshots = new Map();
+
+  return {
+    ...baseAdapter,
+
+    async getSnapshot(entityName, entityId) {
+      return snapshots.get(`${entityName}:${entityId}`) || null;
+    },
+
+    async saveSnapshot(entityName, entityId, state, lastEventId) {
+      snapshots.set(`${entityName}:${entityId}`, { state, lastEventId });
+    },
+
+    async getEventsByEntityId({ entityName, entityId }) {
+      const snapshot = await this.getSnapshot(entityName, entityId);
+
+      if (snapshot) {
+        const allEvents = await baseAdapter.getEventsByEntityId({
+          entityName,
+          entityId
+        });
+        // Only return events after the snapshot
+        return allEvents.filter(e => e.eventId > snapshot.lastEventId);
+      }
+
+      return baseAdapter.getEventsByEntityId({ entityName, entityId });
+    }
+  };
+};
+```
+
+**Why:** Snapshots dramatically improve performance for entities with thousands of events by reducing the number of events that need to be replayed.
+
+## 8. Testing
+
+Write tests for your reducers and mutations:
+
+```typescript
+import { describe, it, expect } from 'vitest';
+
+describe('User Entity', () => {
+  describe('reducer', () => {
+    it('handles user:created event', () => {
+      const event = {
+        eventName: 'user:created',
+        body: { email: 'test@example.com' },
+        eventCreatedAt: '2024-01-01T00:00:00Z'
+      };
+
+      const state = userReducer(undefined, event as any);
+
+      expect(state).toEqual({
+        email: 'test@example.com',
+        createdAt: '2024-01-01T00:00:00Z',
+        loginCount: 0
+      });
+    });
+  });
+
+  describe('mutations', () => {
+    it('prevents withdrawal from frozen account', () => {
+      const user = User.create({
+        body: { email: 'test@example.com' }
+      });
+      user.freeze();
+
+      expect(() => {
+        user.withdraw(100);
+      }).toThrow('Cannot withdraw from frozen account');
+    });
+  });
+});
+```
+
+**Why:** Tests ensure your business logic works correctly and prevent regressions when refactoring.
+
+## Summary
+
+- Use **past tense** for event names
+- Keep events **fine-grained** and focused
+- **Validate** before dispatching events
+- Keep **reducers pure** and deterministic
+- Plan for **event versioning** from the start
+- Consider **snapshots** for performance
+- **Test** your reducers and mutations

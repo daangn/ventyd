@@ -1,0 +1,214 @@
+---
+title: Storage Adapters
+description: Connect Ventyd to your database with storage adapters
+---
+
+# Storage Adapters
+
+Adapters connect Ventyd to your database. Implement the `Adapter` interface with two methods.
+
+## Adapter Interface
+
+```typescript
+interface Adapter {
+  getEventsByEntityId(params: {
+    entityName: string;
+    entityId: string;
+  }): Promise<Event[]>;
+
+  commitEvents(params: {
+    events: Event[];
+  }): Promise<void>;
+}
+```
+
+## In-Memory Adapter (Development)
+
+Perfect for development, testing, and prototyping:
+
+```typescript
+import type { Adapter } from 'ventyd';
+
+const createInMemoryAdapter = (): Adapter => {
+  const events: any[] = [];
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      return events.filter(e =>
+        e.entityName === entityName && e.entityId === entityId
+      );
+    },
+    async commitEvents({ events: newEvents }) {
+      events.push(...newEvents);
+    }
+  };
+};
+```
+
+## MongoDB Adapter (Production)
+
+For production use with MongoDB:
+
+```typescript
+import type { Adapter } from 'ventyd';
+import { MongoClient } from 'mongodb';
+
+const createMongoDBAdapter = (uri: string, dbName: string): Adapter => {
+  const client = new MongoClient(uri);
+  const db = client.db(dbName);
+  const collection = db.collection('events');
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      return collection
+        .find({ entityName, entityId })
+        .sort({ eventCreatedAt: 1 })
+        .toArray();
+    },
+    async commitEvents({ events }) {
+      if (events.length > 0) {
+        await collection.insertMany(events);
+      }
+    }
+  };
+};
+```
+
+**Tip:** Add indexes on `(entityName, entityId)` and `eventCreatedAt` for optimal query performance:
+
+```javascript
+// MongoDB index creation
+db.events.createIndex({ entityName: 1, entityId: 1 });
+db.events.createIndex({ eventCreatedAt: 1 });
+```
+
+## Creating Custom Adapters
+
+You can create adapters for any database by implementing the `Adapter` interface. Here are some examples:
+
+### PostgreSQL Adapter
+
+```typescript
+import type { Adapter } from 'ventyd';
+import { Pool } from 'pg';
+
+const createPostgreSQLAdapter = (connectionString: string): Adapter => {
+  const pool = new Pool({ connectionString });
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      const result = await pool.query(
+        'SELECT * FROM events WHERE entity_name = $1 AND entity_id = $2 ORDER BY event_created_at ASC',
+        [entityName, entityId]
+      );
+      return result.rows;
+    },
+    async commitEvents({ events }) {
+      if (events.length === 0) return;
+
+      const values = events.map((event, i) => {
+        const offset = i * 6;
+        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6})`;
+      }).join(', ');
+
+      const params = events.flatMap(event => [
+        event.eventId,
+        event.eventName,
+        event.eventCreatedAt,
+        event.entityName,
+        event.entityId,
+        JSON.stringify(event.body)
+      ]);
+
+      await pool.query(
+        `INSERT INTO events (event_id, event_name, event_created_at, entity_name, entity_id, body) VALUES ${values}`,
+        params
+      );
+    }
+  };
+};
+```
+
+### Redis Adapter
+
+```typescript
+import type { Adapter } from 'ventyd';
+import { createClient } from 'redis';
+
+const createRedisAdapter = (url: string): Adapter => {
+  const client = createClient({ url });
+  client.connect();
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      const key = `${entityName}:${entityId}`;
+      const events = await client.lRange(key, 0, -1);
+      return events.map(e => JSON.parse(e));
+    },
+    async commitEvents({ events }) {
+      for (const event of events) {
+        const key = `${event.entityName}:${event.entityId}`;
+        await client.rPush(key, JSON.stringify(event));
+      }
+    }
+  };
+};
+```
+
+## Best Practices
+
+### 1. Transaction Support
+
+For databases that support transactions, ensure atomicity when committing multiple events:
+
+```typescript
+async commitEvents({ events }) {
+  const session = await client.startSession();
+  try {
+    await session.withTransaction(async () => {
+      await collection.insertMany(events, { session });
+    });
+  } finally {
+    await session.endSession();
+  }
+}
+```
+
+### 2. Event Ordering
+
+Always maintain event order by sorting on `eventCreatedAt`:
+
+```typescript
+async getEventsByEntityId({ entityName, entityId }) {
+  return collection
+    .find({ entityName, entityId })
+    .sort({ eventCreatedAt: 1 }) // Ascending order
+    .toArray();
+}
+```
+
+### 3. Error Handling
+
+Implement proper error handling and retries:
+
+```typescript
+async commitEvents({ events }) {
+  try {
+    await collection.insertMany(events);
+  } catch (error) {
+    if (error.code === 11000) {
+      // Duplicate key error - event already exists
+      console.warn('Duplicate event detected', error);
+    } else {
+      throw error;
+    }
+  }
+}
+```
+
+### 4. Performance Optimization
+
+- Add appropriate indexes
+- Use batch operations when possible
+- Consider connection pooling
+- Implement caching for frequently accessed entities

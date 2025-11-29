@@ -1,0 +1,127 @@
+---
+title: Core Concepts
+description: Understanding the fundamental concepts of event sourcing with Ventyd
+---
+
+# Core Concepts
+
+Understanding these core concepts will help you effectively use Ventyd for event sourcing.
+
+## Event Sourcing
+
+Event sourcing captures all changes to application state as a sequence of events. Instead of storing just the current state, the system stores all events that led to that state. This provides:
+
+- **Complete Audit Trail**: Every change is recorded with who, what, when
+- **Time Travel**: Reconstruct state at any point in time
+- **Event Replay**: Rebuild state from scratch or migrate data structures
+- **Debugging**: Understand exactly how the current state was reached
+
+## Entities
+
+Entities are domain objects with a unique identity that persist over time. In Ventyd:
+
+- Entities maintain their state through events
+- Each entity has a unique `entityId`
+- State is computed by reducing all events in sequence
+- Business logic is encapsulated in entity methods
+
+## Events
+
+Events represent facts that have happened in your system:
+
+- Immutable once created
+- Contain all information needed to update state
+- Named with past tense (e.g., "created", "updated", "deleted")
+- Automatically timestamped and versioned
+
+## Reducers
+
+Reducers are pure functions that compute state from events:
+
+```typescript
+(previousState, event) => newState
+```
+
+- Must be deterministic (same inputs always produce same output)
+- Should not have side effects
+- Handle all possible event types for the entity
+
+## Mutations
+
+Mutations are entity methods that dispatch events to change state. Use the `mutation()` helper:
+
+```typescript
+class User extends Entity(userSchema, userReducer) {
+  updateProfile = mutation(this, (dispatch, updates: { nickname?: string; bio?: string }) => {
+    if (this.isDeleted) {
+      throw new Error("Cannot update deleted user");
+    }
+    dispatch("user:profile_updated", updates);
+  });
+}
+```
+
+The `mutation()` helper provides:
+- Automatic dispatch binding to the entity
+- Access to `this` for validation logic
+- Type-safe mutation tracking
+- Readonly entity enforcement
+
+## Read-only Entities (CQRS)
+
+Entities loaded from existing state are read-only and cannot dispatch new events:
+
+```typescript
+// Created/hydrated entities can mutate
+const user = User.create({
+  body: { nickname: "John", email: "john@example.com" }
+});
+user.updateProfile({ bio: "Software Engineer" }); // ✅ Works
+
+// Loaded entities are read-only
+const loadedUser = User.load({
+  entityId: "user-123",
+  state: { nickname: "John", email: "john@example.com" }
+});
+loadedUser.updateProfile({ bio: "..." }); // ❌ Type error & runtime error
+```
+
+This enforces **Command-Query Responsibility Segregation (CQRS)**:
+- **Commands** (writes): Use entities created or hydrated from events
+- **Queries** (reads): Use entities loaded from state snapshots
+
+Benefits:
+- Prevents mutations without event history
+- Separates write and read models
+- Maintains event sourcing integrity
+
+## Mutable Loaded Entities (UNSAFE_mutable)
+
+In specific scenarios like migrations, testing, or state synchronization, you may need to load an entity from state and still be able to dispatch events. Use the `UNSAFE_mutable` option for this:
+
+```typescript
+// Load a mutable entity from state
+const mutableUser = User.load({
+  entityId: "user-123",
+  state: {
+    nickname: "John",
+    email: "john@example.com",
+    bio: "Engineer"
+  },
+  UNSAFE_mutable: true
+});
+
+// Now you can dispatch events
+mutableUser.updateProfile({ bio: "Senior Engineer" }); // ✅ Works
+
+// Commit the new events
+await userRepository.commit(mutableUser);
+```
+
+**Warning:** This bypasses event sourcing integrity since the loaded state was not derived from events. Use with caution and only in scenarios where you understand the implications:
+
+- **Data migration**: Loading entities from legacy systems
+- **Testing**: Creating test fixtures with specific states
+- **State synchronization**: Syncing state from external sources
+
+The `UNSAFE_` prefix clearly indicates that this operation should be used carefully.

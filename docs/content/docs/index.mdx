@@ -1,32 +1,70 @@
 ---
-title: Getting Started
-description: |
-  Your first `document`
-  You'll love it!
+title: Introduction
+description: A TypeScript-first event sourcing library
 ---
 
-Hey there! Fumadocs is the docs framework that also works on React Router!
+# Ventyd
 
-## Heading
+A TypeScript-first event sourcing library
 
-Hello World
+## Features
 
-<Cards>
-  <Card title="Learn more about React Router" href="https://reactrouter.com" />
-  <Card title="Learn more about Fumadocs" href="https://fumadocs.dev" />
-</Cards>
+- **Type-Safe Event Sourcing**: Full TypeScript support with comprehensive type inference
+- **Standard Schema Support**: Built on [Standard Schema](https://standardschema.dev) specification for maximum flexibility
+- **Multiple Validation Libraries**: Official integrations for Valibot, Zod, ArkType, and TypeBox - use your favorite validation library
+- **Flexible Storage Adapters**: Connect to any database through a simple interface
+- **Event-Driven Architecture**: Capture all state changes as immutable events
+- **Time Travel**: Reconstruct entity state at any point in history
+- **Lightweight**: Minimal dependencies, focused on core functionality
+- **Plugin System**: Extensible architecture for side effects (analytics, logging, etc.)
 
-```ts
-console.log('I love React!');
+## Installation
+
+```bash
+$ yarn add ventyd
 ```
 
-### Heading
+### Installing Validation Libraries
 
-#### Heading
+Ventyd is built on the [Standard Schema](https://standardschema.dev) specification. Choose your preferred validation library:
 
-| Head                            | Description                         |
-| ------------------------------- | ----------------------------------- |
-| `hello`                         | Hello World                         |
-| very **important**              | Hey                                 |
-| _Surprisingly_                  | Fumadocs                            |
-| very long text that looks weird | hello world hello world hello world |
+```bash
+# Valibot (recommended)
+$ yarn add valibot
+
+# Zod
+$ yarn add zod
+
+# ArkType
+$ yarn add arktype
+
+# TypeBox
+# Note: @sinclair/typemap provides Standard Schema support
+$ yarn add @sinclair/typebox @sinclair/typemap
+
+# Or use any Standard Schema-compliant library directly
+$ yarn add @standard-schema/spec
+```
+
+## Quick Links
+
+<Cards>
+  <Card title="Quick Start" href="/docs/quick-start" />
+  <Card title="Core Concepts" href="/docs/core-concepts" />
+  <Card title="Validation Libraries" href="/docs/validation-libraries" />
+  <Card title="Storage Adapters" href="/docs/storage-adapters" />
+  <Card title="Plugins" href="/docs/plugins" />
+  <Card title="Best Practices" href="/docs/best-practices" />
+</Cards>
+
+## License
+
+MIT
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Support
+
+For questions and support, please open an issue on [GitHub](https://github.com/daangn/ventyd).

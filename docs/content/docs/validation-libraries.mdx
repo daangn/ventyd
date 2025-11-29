@@ -1,0 +1,367 @@
+---
+title: Validation Libraries
+description: Using different validation libraries with Ventyd
+---
+
+# Validation Library Support
+
+Ventyd is built on the [Standard Schema](https://standardschema.dev) specification, which provides a unified interface for all validation libraries.
+
+## Supported Libraries
+
+Any library that implements the Standard Schema specification works with Ventyd:
+
+| Library | Status | Usage |
+|---------|--------|-------|
+| **[Valibot](https://valibot.dev)** | ✅ Official Integration | `ventyd/valibot` |
+| **[Zod](https://zod.dev)** | ✅ Official Integration | `ventyd/zod` |
+| **[ArkType](https://arktype.io)** | ✅ Official Integration | `ventyd/arktype` |
+| **[TypeBox](https://github.com/sinclairzx81/typebox)** | ✅ Official Integration | `ventyd/typebox` |
+| **Others** | ✅ Via Standard Schema | `ventyd/standard` |
+
+**Note:** Official integrations provide automatic event namespacing and better ergonomics. Any Standard Schema-compliant library can also be used directly with the `standard()` provider.
+
+## Using Valibot (Recommended)
+
+Ventyd provides an official helper for Valibot that automatically handles event namespacing and metadata:
+
+```typescript
+import { defineSchema } from 'ventyd';
+import { valibot, v } from 'ventyd/valibot';
+
+const productSchema = defineSchema("product", {
+  schema: valibot({
+    event: {
+      created: v.object({
+        name: v.string(),
+        price: v.pipe(v.number(), v.minValue(0))
+      }),
+      price_updated: v.object({
+        price: v.pipe(v.number(), v.minValue(0))
+      })
+    },
+    state: v.object({
+      name: v.string(),
+      price: v.number()
+    })
+  }),
+  initialEventName: "product:created"
+});
+```
+
+### Custom namespace separator
+
+The default separator between entity name and event name is `":"` (e.g., `user:created`). You can customize it:
+
+```typescript
+const productSchema = defineSchema("product", {
+  schema: valibot({
+    event: {
+      created: v.object({ name: v.string() }),
+      updated: v.object({ price: v.number() })
+    },
+    state: v.object({ name: v.string(), price: v.number() }),
+    namespaceSeparator: "/" // Events become "product/created", "product/updated"
+  }),
+  initialEventName: "product/created" // Must match the separator
+});
+```
+
+## Using TypeBox
+
+Ventyd provides an official helper for TypeBox that automatically handles event namespacing and metadata:
+
+```typescript
+import { defineSchema } from 'ventyd';
+import { typebox, Type } from 'ventyd/typebox';
+
+const productSchema = defineSchema("product", {
+  schema: typebox({
+    event: {
+      created: Type.Object({
+        name: Type.String(),
+        price: Type.Number({ minimum: 0 })
+      }),
+      price_updated: Type.Object({
+        price: Type.Number({ minimum: 0 })
+      })
+    },
+    state: Type.Object({
+      name: Type.String(),
+      price: Type.Number()
+    })
+  }),
+  initialEventName: "product:created"
+});
+```
+
+### TypeBox features you can use
+
+TypeBox provides powerful schema validation with JSON Schema support:
+
+```typescript
+const userSchema = defineSchema("user", {
+  schema: typebox({
+    event: {
+      created: Type.Object({
+        email: Type.String({ format: 'email', maxLength: 255 }),
+        age: Type.Number({ minimum: 13, maximum: 120 }),
+        role: Type.Union([
+          Type.Literal('user'),
+          Type.Literal('admin')
+        ])
+      }),
+      profile_updated: Type.Object({
+        bio: Type.Optional(Type.String({ maxLength: 500 })),
+        avatar: Type.Optional(Type.String({ format: 'uri' }))
+      })
+    },
+    state: Type.Object({
+      email: Type.String(),
+      age: Type.Number(),
+      role: Type.String(),
+      bio: Type.Optional(Type.String()),
+      avatar: Type.Optional(Type.String())
+    })
+  }),
+  initialEventName: "user:created"
+});
+```
+
+### Custom namespace separator
+
+Just like Valibot, you can customize the namespace separator:
+
+```typescript
+const productSchema = defineSchema("product", {
+  schema: typebox({
+    event: {
+      created: Type.Object({ name: Type.String() }),
+      updated: Type.Object({ price: Type.Number() })
+    },
+    state: Type.Object({ name: Type.String(), price: Type.Number() }),
+    namespaceSeparator: "/" // Events become "product/created", "product/updated"
+  }),
+  initialEventName: "product/created" // Must match the separator
+});
+```
+
+## Using Zod
+
+Ventyd provides an official integration for Zod that automatically handles event namespacing and metadata. Zod natively implements Standard Schema V1:
+
+```typescript
+import { defineSchema } from 'ventyd';
+import { zod, z } from 'ventyd/zod';
+
+const customerSchema = defineSchema("customer", {
+  schema: zod({
+    event: {
+      created: z.object({
+        name: z.string().min(1).max(100),
+        email: z.string().email(),
+        phone: z.string().optional()
+      }),
+      contact_updated: z.object({
+        email: z.string().email().optional(),
+        phone: z.string().optional()
+      }),
+      upgraded: z.object({
+        tier: z.enum(["bronze", "silver", "gold", "platinum"])
+      })
+    },
+    state: z.object({
+      name: z.string(),
+      email: z.string().email(),
+      phone: z.string().optional(),
+      tier: z.enum(["bronze", "silver", "gold", "platinum"]),
+      isActive: z.boolean()
+    })
+  }),
+  initialEventName: "customer:created"
+});
+```
+
+### Zod features you can use
+
+Zod provides powerful schema validation with a fluent API:
+
+```typescript
+const orderSchema = defineSchema("order", {
+  schema: zod({
+    event: {
+      created: z.object({
+        email: z.string().email().max(255),
+        total: z.number().positive(),
+        items: z.array(z.object({
+          productId: z.string().uuid(),
+          quantity: z.number().int().positive(),
+          price: z.number().nonnegative()
+        })).min(1),
+        status: z.enum(["pending", "confirmed", "shipped"])
+      }),
+      status_updated: z.object({
+        status: z.enum(["pending", "confirmed", "shipped", "delivered"]),
+        note: z.string().optional()
+      })
+    },
+    state: z.object({
+      email: z.string(),
+      total: z.number(),
+      items: z.array(z.object({
+        productId: z.string(),
+        quantity: z.number(),
+        price: z.number()
+      })),
+      status: z.string()
+    })
+  }),
+  initialEventName: "order:created"
+});
+```
+
+### Custom namespace separator
+
+```typescript
+const productSchema = defineSchema("product", {
+  schema: zod({
+    event: {
+      created: z.object({ name: z.string() }),
+      updated: z.object({ price: z.number() })
+    },
+    state: z.object({ name: z.string(), price: z.number() }),
+    namespaceSeparator: "/" // Events become "product/created", "product/updated"
+  }),
+  initialEventName: "product/created"
+});
+```
+
+## Using ArkType
+
+Ventyd provides an official integration for ArkType that automatically handles event namespacing and metadata. ArkType natively implements Standard Schema V1:
+
+```typescript
+import { defineSchema } from 'ventyd';
+import { arktype, type } from 'ventyd/arktype';
+
+const inventorySchema = defineSchema("inventory", {
+  schema: arktype({
+    event: {
+      created: type({
+        itemName: "string",
+        sku: "string",
+        quantity: "number>=0",
+        location: "string"
+      }),
+      quantity_adjusted: type({
+        quantity: "number",
+        reason: "string"
+      }),
+      location_changed: type({
+        oldLocation: "string",
+        newLocation: "string"
+      })
+    },
+    state: type({
+      itemName: "string",
+      sku: "string",
+      quantity: "number",
+      location: "string",
+      isDepleted: "boolean"
+    })
+  }),
+  initialEventName: "inventory:created"
+});
+```
+
+### ArkType features you can use
+
+ArkType provides powerful type-safe validation with an elegant syntax:
+
+```typescript
+const userSchema = defineSchema("user", {
+  schema: arktype({
+    event: {
+      created: type({
+        email: "string.email",
+        age: "number>=13<=120",
+        role: "'user'|'admin'|'moderator'"
+      }),
+      profile_updated: type({
+        "bio?": "string<=500",
+        "avatar?": "string.url"
+      })
+    },
+    state: type({
+      email: "string.email",
+      age: "number",
+      role: "string",
+      "bio?": "string",
+      "avatar?": "string"
+    })
+  }),
+  initialEventName: "user:created"
+});
+```
+
+### Custom namespace separator
+
+```typescript
+const productSchema = defineSchema("product", {
+  schema: arktype({
+    event: {
+      created: type({ name: "string" }),
+      updated: type({ price: "number" })
+    },
+    state: type({ name: "string", price: "number" }),
+    namespaceSeparator: "/" // Events become "product/created", "product/updated"
+  }),
+  initialEventName: "product/created"
+});
+```
+
+## Using Other Libraries (Standard Schema Provider)
+
+For libraries without an official integration, use the `standard()` provider directly. This works with any Standard Schema-compliant library:
+
+```typescript
+import { defineSchema } from 'ventyd';
+import { standard } from 'ventyd/standard';
+import * as v from 'valibot'; // or zod, arktype, etc.
+
+const userSchema = defineSchema("user", {
+  schema: standard({
+    event: {
+      "user:created": v.object({
+        eventId: v.string(),
+        eventName: v.literal("user:created"),
+        eventCreatedAt: v.string(),
+        entityName: v.string(),
+        entityId: v.string(),
+        body: v.object({
+          email: v.pipe(v.string(), v.email())
+        })
+      }),
+      "user:updated": v.object({
+        eventId: v.string(),
+        eventName: v.literal("user:updated"),
+        eventCreatedAt: v.string(),
+        entityName: v.string(),
+        entityId: v.string(),
+        body: v.object({
+          nickname: v.string()
+        })
+      })
+    },
+    state: v.object({
+      email: v.string(),
+      nickname: v.optional(v.string())
+    })
+  }),
+  initialEventName: "user:created"
+});
+```
+
+**Important:** When using `standard()` directly, you must manually include all event metadata fields (`eventId`, `eventName`, `eventCreatedAt`, `entityName`, `entityId`, `body`) in your event schemas. Official integrations like `valibot()`, `zod()`, `arktype()`, and `typebox()` add these automatically.
+
+Want an official integration for your favorite library? [Open an issue](https://github.com/daangn/ventyd/issues) to let us know!
