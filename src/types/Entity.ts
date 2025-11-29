@@ -57,44 +57,7 @@ export interface Entity<$$Schema> {
   /** @internal */
   " $$readonly": boolean;
   /** @internal */
-  " $$listeners": (() => void)[];
-  /** @internal */
   " $$now": () => Date;
-
-  /**
-   * Subscribes to state changes in this entity.
-   *
-   * @param listener - A callback function that will be invoked whenever the entity's state changes
-   * @returns A disposer function that can be called to unsubscribe the listener
-   *
-   * @remarks
-   * The listener is called immediately after each event is dispatched and the state is updated.
-   * Listeners are called synchronously in the order they were registered.
-   *
-   * Multiple listeners can be registered on the same entity.
-   *
-   * @example
-   * ```typescript
-   * const user = User.create({
-   *   body: {
-   *     nickname: "John",
-   *     email: "john@example.com"
-   *   }
-   * });
-   *
-   * // Subscribe to state changes
-   * const unsubscribe = user.subscribe(() => {
-   *   console.log("User state changed:", user.state);
-   * });
-   *
-   * // This will trigger the listener
-   * user.updateProfile({ bio: "Software Engineer" });
-   *
-   * // Unsubscribe when done
-   * unsubscribe();
-   * ```
-   */
-  subscribe(listener: () => void): () => void;
 
   // ----------------------
   // private methods

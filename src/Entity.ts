@@ -232,17 +232,6 @@ export function Entity<$$Schema extends DefaultSchema>(
       });
     }
 
-    subscribe(listener: () => void): () => void {
-      this[" $$listeners"].push(listener);
-
-      return () => {
-        const index = this[" $$listeners"].indexOf(listener);
-        if (index > -1) {
-          this[" $$listeners"].splice(index, 1);
-        }
-      };
-    }
-
     // ----------------------
     // private methods
     // ----------------------
