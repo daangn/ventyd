@@ -1,6 +1,13 @@
-# Ventyd
+<div align="center">
 
-A TypeScript-first event sourcing library with full type safety and flexible storage backends.
+<img src="./logo-light.png#gh-light-mode-only" alt="Ventyd Logo" style="width: 160px;">
+<img src="./logo-light.png#gh-dark-mode-only" alt="Ventyd Logo" style="width: 160px;">
+
+<p>A TypeScript-first event sourcing library</p>
+
+![](https://img.shields.io/npm/v/ventyd) ![](https://img.shields.io/npm/l/ventyd) ![](https://img.shields.io/npm/dt/ventyd) ![](https://img.shields.io/github/contributors/daangn/ventyd) ![](https://img.shields.io/github/last-commit/daangn/ventyd)
+
+</div>
 
 ## Features
 
