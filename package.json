@@ -43,6 +43,8 @@
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
+    "logo-light.png",
+    "logo-dark.png",
     "dist"
   ],
   "scripts": {
