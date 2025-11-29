@@ -1,7 +1,7 @@
-<div align="center">
+<div align="center" style="margin-top: 24px !important;margin-bottom: 56px;">
 
-<img src="./logo-light.png#gh-light-mode-only" alt="Ventyd Logo" style="width: 160px;">
-<img src="./logo-light.png#gh-dark-mode-only" alt="Ventyd Logo" style="width: 160px;">
+<img src="./logo-light.png#gh-light-mode-only" alt="Ventyd Logo" style="width: 210px;">
+<img src="./logo-dark.png#gh-dark-mode-only" alt="Ventyd Logo" style="width: 210px;">
 
 <p>A TypeScript-first event sourcing library</p>
 
