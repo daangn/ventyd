@@ -94,7 +94,7 @@ export function standard<
           );
         }
 
-        return standardValidate(eventSchema, input) as Extract<
+        return standardValidate(eventSchema, input, eventName) as Extract<
           StandardSchemaV1.InferOutput<$$EventDefinition[K]>,
           { eventName: K }
         >;
@@ -111,6 +111,7 @@ export function standard<
  *
  * @param schema - The Standard Schema to validate against
  * @param input - The input value to validate
+ * @param eventName - Optional event name for better error messages
  * @returns The validated and typed output
  * @throws {Error} If validation fails or if the schema returns a Promise
  *
@@ -119,6 +120,7 @@ export function standard<
 function standardValidate<T extends StandardSchemaV1>(
   schema: T,
   input: unknown,
+  eventName?: string,
 ): StandardSchemaV1.InferOutput<T> {
   const result = schema["~standard"].validate(input);
 
@@ -126,8 +128,44 @@ function standardValidate<T extends StandardSchemaV1>(
     throw new Error("Promise validation result is not supported");
   }
   if (result.issues) {
-    throw new Error("Validation failed");
+    const formattedError = formatStandardSchemaIssues(result.issues, eventName);
+    throw new Error(formattedError);
   }
 
   return result.value as StandardSchemaV1.InferOutput<T>;
+}
+
+/**
+ * Formats Standard Schema validation issues into a readable error message.
+ *
+ * @param issues - Array of validation issues from Standard Schema
+ * @param eventName - Optional event name to include in the error message
+ * @returns Formatted error message string
+ *
+ * @internal
+ */
+function formatStandardSchemaIssues(
+  issues: readonly StandardSchemaV1.Issue[],
+  eventName?: string,
+): string {
+  const header = eventName
+    ? `Validation failed: "${eventName}"`
+    : "Validation failed";
+
+  const errors = issues
+    .map((issue) => {
+      const pathStr =
+        issue.path && issue.path.length > 0
+          ? issue.path
+              .map((segment) =>
+                typeof segment === "object" ? segment.key : segment,
+              )
+              .join(".")
+          : "(root)";
+
+      return `  - ${pathStr}: ${issue.message}`;
+    })
+    .join("\n");
+
+  return errors ? `${header}\n${errors}` : header;
 }
