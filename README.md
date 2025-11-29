@@ -1,15 +1,11 @@
 <div align="center">
 
-<div style="margin-top:24px !important; margin-bottom:56px;">
-
 <img src="./logo-light.png#gh-light-mode-only" alt="Ventyd Logo" style="width: 210px;">
 <img src="./logo-dark.png#gh-dark-mode-only" alt="Ventyd Logo" style="width: 210px;">
 
 <p>A TypeScript-first event sourcing library</p>
 
 ![](https://img.shields.io/npm/v/ventyd) ![](https://img.shields.io/npm/l/ventyd) ![](https://img.shields.io/npm/dt/ventyd) ![](https://img.shields.io/github/contributors/daangn/ventyd) ![](https://img.shields.io/github/last-commit/daangn/ventyd)
-
-</div>
 
 </div>
 
