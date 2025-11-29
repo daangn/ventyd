@@ -1,5 +1,17 @@
 # ventyd
 
+## 1.13.0
+
+### Minor Changes
+
+- f75c96c: refactor: remove `subscribe()` API
+
+### Patch Changes
+
+- eacf012: Add more descriptive validation error messages
+- 69a6b61: docs: add logo in README.md
+- 8866d16: refactor: improve " $$flush"
+
 ## 1.12.1
 
 ### Patch Changes
