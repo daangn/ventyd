@@ -1012,54 +1012,6 @@ const badPlugin: Plugin = {
 };
 ```
 
-## Subscribing to State Changes
-
-Entities support subscribing to state changes, allowing you to react whenever an entity's state is updated. This is useful for UI updates, logging, or triggering side effects.
-
-### Basic Usage
-
-```typescript
-const user = User.create({
-  body: {
-    nickname: "John",
-    email: "john@example.com"
-  }
-});
-
-// Subscribe to state changes
-user.subscribe(() => {
-  console.log("User state changed:", user.state);
-});
-
-// This will trigger the listener
-user.updateProfile({ bio: "Software Engineer" });
-```
-
-### Multiple Listeners
-
-You can register multiple listeners on the same entity. They will be called in the order they were registered:
-
-```typescript
-const user = User.create({
-  body: {
-    nickname: "Alice",
-    email: "alice@example.com"
-  }
-});
-
-// Register multiple listeners
-user.subscribe(() => {
-  console.log("Listener 1: State changed");
-});
-
-user.subscribe(() => {
-  console.log("Listener 2: State changed");
-});
-
-// Both listeners will be called when state changes
-user.updateProfile({ bio: "Engineer" });
-```
-
 ## Best Practices
 
 ### 1. Event Naming
