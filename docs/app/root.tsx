@@ -34,7 +34,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
       </head>
       <body className="flex flex-col min-h-screen">
-        <RootProvider search={{ SearchDialog }}>{children}</RootProvider>
+        <RootProvider search={{ SearchDialog }} theme={{ forcedTheme: "dark" }}>
+          {children}
+        </RootProvider>
         <ScrollRestoration />
         <Scripts />
       </body>
