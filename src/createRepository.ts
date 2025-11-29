@@ -168,7 +168,7 @@ export function createRepository<
       const _entity = entity as Entity<$$Schema>;
 
       // 1. copy queued events
-      const queuedEvents = [..._entity[" $$queuedEvents"]];
+      const queuedEvents = _entity[" $$flush"]();
 
       // 2. commit events to adapter
       await args.adapter.commitEvents({
@@ -178,10 +178,7 @@ export function createRepository<
         state: _entity.state,
       });
 
-      // 3. flush queued events
-      _entity[" $$flush"]();
-
-      // 4. run plugins in parallel (only if there are events)
+      // 3. run plugins in parallel (only if there are events)
       if (args.plugins && args.plugins.length > 0 && queuedEvents.length > 0) {
         const pluginResults = await Promise.allSettled(
           args.plugins.map((plugin) =>

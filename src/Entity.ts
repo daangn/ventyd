@@ -291,7 +291,10 @@ export function Entity<$$Schema extends DefaultSchema>(
     }
 
     " $$flush"() {
+      const queuedEvents = [...this[" $$queuedEvents"]];
       this[" $$queuedEvents"] = [];
+
+      return queuedEvents;
     }
 
     " $$createEvent"<EventName extends InferEventNameFromSchema<$$Schema>>(
