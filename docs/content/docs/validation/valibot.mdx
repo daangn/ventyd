@@ -1,0 +1,509 @@
+---
+title: Valibot
+description: Complete guide to using Valibot with Ventyd
+---
+
+# Valibot
+
+Valibot is a lightweight, modular validation library with the smallest bundle size. It's the recommended choice for most projects, especially when bundle size matters.
+
+## Why Valibot?
+
+- **Smallest Bundle Size**: ~1KB for basic schemas (tree-shakeable)
+- **Modular**: Only import what you need
+- **Excellent TypeScript**: Perfect type inference and IDE support
+- **Fast Performance**: Optimized for speed
+- **Easy to Learn**: Clean, intuitive API
+- **Great Error Messages**: Helpful validation error reporting
+
+## Installation
+
+
+  
+    ```bash
+    pnpm add ventyd valibot
+    ```
+  
+  
+    ```bash
+    yarn add ventyd valibot
+    ```
+  
+  
+    ```bash
+    npm install ventyd valibot
+    ```
+  
+
+
+## Basic Usage
+
+### 1. Define Your Schema
+
+Start by defining your entity's events and state using Valibot validators:
+
+```typescript
+import { defineSchema } from 'ventyd';
+import { valibot, v } from 'ventyd/valibot';
+
+const userSchema = defineSchema("user", {
+  schema: valibot({
+    event: {
+      created: v.object({
+        email: v.pipe(v.string(), v.email()),
+        name: v.string(),
+        age: v.number()
+      }),
+      profile_updated: v.object({
+        name: v.optional(v.string()),
+        age: v.optional(v.number())
+      }),
+      deleted: v.object({
+        reason: v.optional(v.string())
+      })
+    },
+    state: v.object({
+      email: v.string(),
+      name: v.string(),
+      age: v.number(),
+      deletedAt: v.optional(v.nullable(v.string()))
+    })
+  }),
+  initialEventName: "user:created"
+});
+```
+
+### 2. Create a Reducer
+
+Define how events transform your entity state:
+
+```typescript
+import { defineReducer } from 'ventyd';
+
+const userReducer = defineReducer(userSchema, (prevState, event) => {
+  switch (event.eventName) {
+    case "user:created":
+      return {
+        email: event.body.email,
+        name: event.body.name,
+        age: event.body.age,
+        deletedAt: undefined
+      };
+
+    case "user:profile_updated":
+      return {
+        ...prevState,
+        ...(event.body.name && { name: event.body.name }),
+        ...(event.body.age !== undefined && { age: event.body.age })
+      };
+
+    case "user:deleted":
+      return {
+        ...prevState,
+        deletedAt: event.eventCreatedAt
+      };
+
+    default:
+      return prevState;
+  }
+});
+```
+
+### 3. Create Your Entity
+
+Extend the `Entity` class with business logic:
+
+```typescript
+import { Entity, mutation } from 'ventyd';
+
+class User extends Entity(userSchema, userReducer) {
+  get isDeleted() {
+    return this.state.deletedAt !== null;
+  }
+
+  updateProfile = mutation(this, (dispatch, updates: { name?: string; age?: number }) => {
+    if (this.isDeleted) {
+      throw new Error("Cannot update deleted user");
+    }
+    dispatch("user:profile_updated", updates);
+  });
+
+  delete = mutation(this, (dispatch, reason?: string) => {
+    if (this.isDeleted) {
+      throw new Error("User is already deleted");
+    }
+    dispatch("user:deleted", { reason });
+  });
+}
+```
+
+### 4. Use Your Entity
+
+Create instances, dispatch events, and persist:
+
+```typescript
+// Create a new user
+const user = User.create({
+  body: {
+    email: "john@example.com",
+    name: "John Doe",
+    age: 30
+  }
+});
+
+// Update the user's profile
+user.updateProfile({ age: 31 });
+
+// Delete the user
+user.delete("No longer active");
+
+// Access the current state
+console.log(user.state.name); // "John Doe"
+console.log(user.isDeleted); // true
+
+// Persist events
+await userRepository.commit(user);
+```
+
+## Valibot Features in Ventyd
+
+Valibot's powerful validators work seamlessly with Ventyd. Here are some advanced patterns:
+
+### Pipes for Composition
+
+Chain multiple validations together:
+
+```typescript
+const emailSchema = defineSchema("email", {
+  schema: valibot({
+    event: {
+      verified: v.object({
+        email: v.pipe(
+          v.string(),
+          v.email(),
+          v.maxLength(255)
+        )
+      })
+    },
+    state: v.object({
+      email: v.string()
+    })
+  }),
+  initialEventName: "email:verified"
+});
+```
+
+### Complex Objects
+
+Define nested structures and array validations:
+
+```typescript
+const orderSchema = defineSchema("order", {
+  schema: valibot({
+    event: {
+      created: v.object({
+        customerId: v.string(),
+        items: v.array(
+          v.object({
+            productId: v.string(),
+            quantity: v.pipe(v.number(), v.integer(), v.minValue(1)),
+            price: v.pipe(v.number(), v.minValue(0))
+          }),
+          v.minLength(1)
+        ),
+        total: v.pipe(v.number(), v.minValue(0)),
+        status: v.picklist(["pending", "confirmed", "shipped", "delivered"])
+      })
+    },
+    state: v.object({
+      customerId: v.string(),
+      items: v.array(v.object({
+        productId: v.string(),
+        quantity: v.number(),
+        price: v.number()
+      })),
+      total: v.number(),
+      status: v.string()
+    })
+  }),
+  initialEventName: "order:created"
+});
+```
+
+### Optional and Nullable Fields
+
+Handle optional and nullable values:
+
+```typescript
+const profileSchema = defineSchema("profile", {
+  schema: valibot({
+    event: {
+      created: v.object({
+        bio: v.optional(v.string()),
+        website: v.optional(v.string()),
+        avatar: v.nullable(v.string())
+      })
+    },
+    state: v.object({
+      bio: v.optional(v.string()),
+      website: v.optional(v.string()),
+      avatar: v.nullable(v.string())
+    })
+  }),
+  initialEventName: "profile:created"
+});
+```
+
+### Custom Validation
+
+Use Valibot's custom validators for business logic:
+
+```typescript
+const customEvent = v.object({
+  username: v.pipe(
+    v.string(),
+    v.minLength(3),
+    v.maxLength(20),
+    v.regex(/^[a-zA-Z0-9_]+$/, "Only alphanumeric and underscores")
+  ),
+  age: v.pipe(
+    v.number(),
+    v.integer(),
+    v.minValue(13),
+    v.maxValue(120)
+  )
+});
+```
+
+## Custom Namespace Separator
+
+By default, events use a colon separator (e.g., `user:created`). Customize it:
+
+```typescript
+const userSchema = defineSchema("user", {
+  schema: valibot({
+    event: {
+      created: v.object({ email: v.string() }),
+      profile_updated: v.object({ name: v.string() })
+    },
+    state: v.object({ email: v.string(), name: v.string() }),
+    namespaceSeparator: "/" // Events: "user/created", "user/profile_updated"
+  }),
+  initialEventName: "user/created" // Must match separator
+});
+```
+
+Other separator examples:
+- `"."` → `user.created`
+- `"-"` → `user-created`
+- `"_"` → `user_created`
+
+## Advanced Patterns
+
+### Type-Safe Event Dispatching
+
+Leverage TypeScript for type-safe events:
+
+```typescript
+class Product extends Entity(productSchema, productReducer) {
+  updatePrice = mutation(this, (dispatch, price: number) => {
+    if (price < 0) {
+      throw new Error("Price cannot be negative");
+    }
+    // TypeScript ensures body matches schema
+    dispatch("product:price_updated", { price }); // ✅ Type-checked
+    // dispatch("product:price_updated", { invalid: true }); // ❌ Type error
+  });
+}
+```
+
+### Conditional Validation
+
+Implement conditional validation logic:
+
+```typescript
+class Order extends Entity(orderSchema, orderReducer) {
+  confirmOrder = mutation(this, (dispatch) => {
+    if (this.state.total <= 0) {
+      throw new Error("Order total must be positive");
+    }
+    if (this.state.items.length === 0) {
+      throw new Error("Order must have at least one item");
+    }
+    dispatch("order:confirmed", {});
+  });
+}
+```
+
+### Composition with Validators
+
+Reuse validators across multiple schemas:
+
+```typescript
+const emailValidator = v.pipe(v.string(), v.email());
+const positiveNumber = v.pipe(v.number(), v.minValue(0));
+
+const userSchema = defineSchema("user", {
+  schema: valibot({
+    event: {
+      created: v.object({
+        email: emailValidator,
+        age: v.pipe(v.number(), v.integer(), v.minValue(18))
+      })
+    },
+    state: v.object({
+      email: v.string(),
+      age: v.number()
+    })
+  }),
+  initialEventName: "user:created"
+});
+
+const invoiceSchema = defineSchema("invoice", {
+  schema: valibot({
+    event: {
+      created: v.object({
+        customerEmail: emailValidator,
+        total: positiveNumber
+      })
+    },
+    state: v.object({
+      customerEmail: v.string(),
+      total: v.number()
+    })
+  }),
+  initialEventName: "invoice:created"
+});
+```
+
+## Error Handling
+
+Valibot provides helpful error information:
+
+```typescript
+import { parse } from 'valibot';
+
+const schema = v.object({
+  email: v.pipe(v.string(), v.email()),
+  age: v.pipe(v.number(), v.minValue(18))
+});
+
+try {
+  const result = parse(schema, {
+    email: "invalid-email",
+    age: 16
+  });
+} catch (error) {
+  // Valibot errors provide clear validation feedback
+  console.error(error.issues);
+  // [
+  //   { path: ['email'], message: 'Invalid email' },
+  //   { path: ['age'], message: 'Must be >= 18' }
+  // ]
+}
+```
+
+## Performance Tips
+
+### Tree-Shaking
+
+Valibot's modular design allows excellent tree-shaking:
+
+```typescript
+// Only imports what's used
+import { object, string, email, pipe } from 'valibot';
+
+const schema = object({
+  email: pipe(string(), email())
+});
+```
+
+### Lazy Validation
+
+Defer validation until needed:
+
+```typescript
+class User {
+  private events: Event[] = [];
+
+  dispatch(eventName: string, body: unknown) {
+    // Store event without validation
+    this.events.push({ eventName, body });
+  }
+
+  validate() {
+    // Validate only when needed
+    for (const event of this.events) {
+      // Validate event schema
+    }
+  }
+}
+```
+
+## Comparison with Other Libraries
+
+| Aspect | Valibot | Zod | TypeBox | ArkType |
+|--------|---------|-----|---------|---------|
+| **Bundle Size** | ⭐⭐⭐⭐⭐ 1KB | ⭐⭐⭐ 4KB | ⭐⭐⭐⭐ 2KB | ⭐⭐⭐⭐ 2KB |
+| **Performance** | ⭐⭐⭐⭐ Fast | ⭐⭐⭐ Good | ⭐⭐⭐⭐⭐ Fastest | ⭐⭐⭐⭐⭐ Fastest |
+| **TypeScript** | ⭐⭐⭐⭐⭐ Excellent | ⭐⭐⭐⭐ Great | ⭐⭐⭐⭐ Great | ⭐⭐⭐⭐⭐ Excellent |
+| **Learning Curve** | ⭐⭐⭐⭐⭐ Easy | ⭐⭐⭐⭐ Moderate | ⭐⭐⭐⭐ Moderate | ⭐⭐⭐⭐⭐ Easy |
+| **Ecosystem** | ⭐⭐⭐ Growing | ⭐⭐⭐⭐⭐ Large | ⭐⭐⭐ Good | ⭐⭐⭐ Growing |
+
+## Pros and Cons
+
+### Pros
+
+- **Tiny Bundle Size**: 1KB gzipped for core functionality
+- **Modular**: Import only validators you need
+- **Fast**: Excellent performance for validation
+- **TypeScript First**: Great type inference
+- **Easy to Learn**: Clean, intuitive API
+- **Good Error Messages**: Clear validation feedback
+- **Pipes Pattern**: Elegant composition with pipes
+
+### Cons
+
+- **Smaller Ecosystem**: Fewer third-party integrations than Zod
+- **Newer Project**: Less battle-tested than Zod
+- **Less Documentation**: Fewer tutorials and examples online
+- **Community Size**: Smaller community than Zod
+
+## Next Steps
+
+- **Explore [Zod](/docs/validation/zod)** for a larger ecosystem
+- **Try [TypeBox](/docs/validation/typebox)** for JSON Schema compatibility
+- **Check [ArkType](/docs/validation/arktype)** for ultra-fast validation
+- **Build your first entity** with Valibot
+- **Learn [Best Practices](/docs/best-practices)** for event sourcing
+
+<Callout type="tip">
+**Pro Tip: Start with Valibot**
+
+Valibot is the recommended choice for new Ventyd projects because of its excellent bundle size and performance. You can always switch to another library later if needed, thanks to Standard Schema compatibility.
+</Callout>
+
+---
+
+<Cards>
+  <Card
+    title="Validation Overview"
+    description="Learn about all validation libraries"
+    href="/docs/validation"
+  />
+  <Card
+    title="Zod Guide"
+    description="Popular and well-established"
+    href="/docs/validation/zod"
+  />
+  <Card
+    title="TypeBox Guide"
+    description="JSON Schema compatible"
+    href="/docs/validation/typebox"
+  />
+  <Card
+    title="ArkType Guide"
+    description="Ultra-fast validation"
+    href="/docs/validation/arktype"
+  />
+</Cards>

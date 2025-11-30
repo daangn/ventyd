@@ -1,0 +1,690 @@
+---
+title: Repositories
+description: Understanding repositories, persistence, and entity storage
+---
+
+# Repositories
+
+Repositories are the bridge between your entities and persistent storage. They handle saving events and loading entities from the database, providing a clean API for persistence and retrieval.
+
+## What is a Repository?
+
+A repository is a pattern that encapsulates access to entities:
+
+```typescript
+import { createRepository } from 'ventyd';
+
+const userRepository = createRepository(User, {
+  adapter: mongoAdapter,
+  plugins: [auditPlugin, analyticsPlugin]
+});
+```
+
+The repository provides:
+- **Persistence**: Save entities to storage with `commit()`
+- **Retrieval**: Load entities from storage with `findOne()`
+- **Plugin support**: Execute side effects after commits
+- **Adapter abstraction**: Work with any database
+
+## Creating a Repository
+
+```typescript
+import { createRepository } from 'ventyd';
+import type { Adapter } from 'ventyd';
+
+// 1. Create or get an adapter
+const adapter: Adapter = {
+  async getEventsByEntityId({ entityName, entityId }) {
+    // Load events from database
+  },
+  async commitEvents({ events }) {
+    // Save events to database
+  }
+};
+
+// 2. Create repository
+const userRepository = createRepository(User, {
+  adapter: adapter
+});
+
+// 3. Now you can use it
+const user = await userRepository.findOne({ entityId: "user-123" });
+```
+
+## Core Operations
+
+### 1. Creating and Committing
+
+```typescript
+// Create a new entity
+const user = User.create({
+  body: {
+    name: "Alice",
+    email: "alice@example.com"
+  }
+});
+
+// Make changes
+user.updateProfile({ name: "Alice Smith" });
+
+// Persist to storage
+await userRepository.commit(user);
+```
+
+What happens when you commit:
+
+```typescript
+// Internally:
+// 1. Validation runs on all events
+// 2. All events are sent to adapter
+// 3. Adapter writes to database
+// 4. Plugins are called with onCommitted
+// 5. Entity is marked as persisted
+```
+
+### 2. Loading Entities
+
+Load an entity from storage and reconstruct its state:
+
+```typescript
+const user = await userRepository.findOne({
+  entityId: "user-123"
+});
+
+if (user) {
+  console.log(user.state); // Current state
+  console.log(user.events); // All historical events
+}
+```
+
+The `findOne()` method:
+- Retrieves all events for the entity
+- Replays them through the reducer
+- Returns a mutable entity
+- Includes the complete event history
+
+### 3. Error Handling
+
+```typescript
+const user = await userRepository.findOne({
+  entityId: "user-123"
+});
+
+if (!user) {
+  // Entity not found
+  console.log("User not found");
+  return;
+}
+
+// Entity found - use it
+user.updateProfile({ name: "New Name" });
+await userRepository.commit(user);
+```
+
+## Commit Behavior
+
+### What Gets Committed
+
+Only **new events** from mutations get committed:
+
+```typescript
+const user = User.create({
+  body: { name: "Alice", email: "alice@example.com" }
+});
+
+console.log(user.events.length); // 1 (just the create event)
+
+user.updateProfile({ name: "Alice Smith" });
+console.log(user.events.length); // 2 (create + update)
+
+// Commit saves both events
+await userRepository.commit(user);
+
+// Loading later
+const loaded = await userRepository.findOne({ entityId: user.entityId });
+console.log(loaded.events.length); // 2 (all events)
+```
+
+### Atomic Commits
+
+All events from an entity are committed atomically:
+
+```typescript
+class Order extends Entity(orderSchema, orderReducer) {
+  checkout = mutation(this, (dispatch) => {
+    // Multiple events
+    dispatch("order:confirmed", { ... });
+    dispatch("order:payment_charged", { ... });
+    dispatch("order:status_updated", { ... });
+  });
+}
+
+const order = Order.create({ ... });
+order.checkout();
+
+// All 4 events (create + 3 from checkout) are committed together
+// Either all succeed or all fail
+await orderRepository.commit(order);
+```
+
+### Idempotency
+
+Repositories handle idempotency through event IDs:
+
+```typescript
+const user = User.create({
+  body: { name: "Alice", email: "alice@example.com" }
+});
+
+// First commit
+await userRepository.commit(user);
+
+// Second commit (idempotent)
+// Events with same IDs aren't duplicated
+await userRepository.commit(user);
+
+// Result: Only one set of events in storage
+```
+
+<Callout type="info">
+**Event IDs**
+
+Each event has a unique `eventId`. If you try to commit the same event twice, the repository detects it and handles it gracefully.
+</Callout>
+
+## Adapters
+
+Adapters connect repositories to databases. Ventyd provides a simple interface:
+
+```typescript
+interface Adapter {
+  getEventsByEntityId(params: {
+    entityName: string;
+    entityId: string;
+  }): Promise<Event[]>;
+
+  commitEvents(params: {
+    events: Event[];
+  }): Promise<void>;
+}
+```
+
+### In-Memory Adapter (Development)
+
+```typescript
+import type { Adapter } from 'ventyd';
+
+const createInMemoryAdapter = (): Adapter => {
+  const events: any[] = [];
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      return events.filter(
+        e => e.entityName === entityName && e.entityId === entityId
+      );
+    },
+    async commitEvents({ events: newEvents }) {
+      events.push(...newEvents);
+    }
+  };
+};
+
+// Usage
+const adapter = createInMemoryAdapter();
+const userRepository = createRepository(User, { adapter });
+```
+
+### MongoDB Adapter
+
+```typescript
+import type { Adapter } from 'ventyd';
+import { MongoClient } from 'mongodb';
+
+const createMongoDBAdapter = (uri: string, dbName: string): Adapter => {
+  const client = new MongoClient(uri);
+  const db = client.db(dbName);
+  const collection = db.collection('events');
+
+  // Create indexes for performance
+  collection.createIndex({ entityName: 1, entityId: 1 });
+  collection.createIndex({ eventCreatedAt: 1 });
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      return collection
+        .find({ entityName, entityId })
+        .sort({ eventCreatedAt: 1 })
+        .toArray() as any;
+    },
+
+    async commitEvents({ events }) {
+      if (events.length > 0) {
+        await collection.insertMany(events);
+      }
+    }
+  };
+};
+
+// Usage
+const adapter = createMongoDBAdapter(
+  "mongodb://localhost:27017",
+  "event_sourcing"
+);
+const userRepository = createRepository(User, { adapter });
+```
+
+### PostgreSQL Adapter
+
+```typescript
+import type { Adapter } from 'ventyd';
+import { Pool } from 'pg';
+
+const createPostgresAdapter = (pool: Pool): Adapter => {
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      const result = await pool.query(
+        `SELECT * FROM events
+         WHERE entity_name = $1 AND entity_id = $2
+         ORDER BY event_created_at ASC`,
+        [entityName, entityId]
+      );
+      return result.rows;
+    },
+
+    async commitEvents({ events }) {
+      if (events.length === 0) return;
+
+      const query = `INSERT INTO events
+                     (event_id, event_name, event_created_at, entity_name, entity_id, body)
+                     VALUES ($1, $2, $3, $4, $5, $6)`;
+
+      for (const event of events) {
+        await pool.query(query, [
+          event.eventId,
+          event.eventName,
+          event.eventCreatedAt,
+          event.entityName,
+          event.entityId,
+          JSON.stringify(event.body)
+        ]);
+      }
+    }
+  };
+};
+```
+
+## Plugins
+
+Plugins execute after events are committed, enabling side effects:
+
+```typescript
+import type { Plugin } from 'ventyd';
+
+const auditPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, events, state }) {
+    await auditLog.record({
+      entity: `${entityName}:${entityId}`,
+      eventCount: events.length,
+      finalState: state,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+const userRepository = createRepository(User, {
+  adapter,
+  plugins: [auditPlugin]
+});
+```
+
+### Plugin Lifecycle
+
+```typescript
+const repo = createRepository(User, {
+  adapter,
+  plugins: [plugin1, plugin2, plugin3]
+});
+
+// When you commit:
+await repo.commit(user);
+
+// 1. Events are validated
+// 2. Events are persisted to storage
+// 3. Plugins are called concurrently (Promise.allSettled)
+// 4. commit() returns
+```
+
+<Callout type="info">
+**Non-blocking**
+
+Plugins run after the commit completes. If a plugin fails, the commit is still successful - the plugin error doesn't affect your application.
+</Callout>
+
+### Common Plugins
+
+#### Analytics Plugin
+
+```typescript
+const analyticsPlugin: Plugin = {
+  async onCommitted({ entityName, events }) {
+    for (const event of events) {
+      await analytics.track({
+        event: event.eventName,
+        properties: event.body,
+        timestamp: event.eventCreatedAt
+      });
+    }
+  }
+};
+```
+
+#### Notification Plugin
+
+```typescript
+const notificationPlugin: Plugin = {
+  async onCommitted({ events }) {
+    const importantEvents = events.filter(e =>
+      ["created", "deleted", "completed"].some(action =>
+        e.eventName.includes(action)
+      )
+    );
+
+    if (importantEvents.length > 0) {
+      await notificationService.notify({
+        message: `${importantEvents.length} important events`,
+        events: importantEvents
+      });
+    }
+  }
+};
+```
+
+#### Search Index Plugin
+
+```typescript
+const searchIndexPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    await searchEngine.index({
+      id: `${entityName}:${entityId}`,
+      type: entityName,
+      document: state
+    });
+  }
+};
+```
+
+## Repository Patterns
+
+### Pattern 1: Create, Update, Save
+
+```typescript
+async function createAndUpdateUser(input: CreateUserInput) {
+  // Create
+  const user = User.create({
+    body: {
+      name: input.name,
+      email: input.email
+    }
+  });
+
+  // Update
+  user.updateProfile({ bio: input.bio });
+
+  // Save
+  await userRepository.commit(user);
+
+  // Return
+  return user;
+}
+```
+
+### Pattern 2: Load, Modify, Save
+
+```typescript
+async function updateUserEmail(userId: string, newEmail: string) {
+  // Load
+  const user = await userRepository.findOne({ entityId: userId });
+  if (!user) throw new Error("User not found");
+
+  // Modify
+  user.updateEmail(newEmail);
+
+  // Save
+  await userRepository.commit(user);
+
+  // Return updated state
+  return user.state;
+}
+```
+
+### Pattern 3: Load for Display (Read-Only)
+
+```typescript
+async function getUserProfile(userId: string) {
+  // Load from main repository (has events)
+  const user = await userRepository.findOne({ entityId: userId });
+  if (!user) throw new Error("User not found");
+
+  // Convert to read-only for display
+  return User.load({
+    entityId: user.entityId,
+    state: user.state
+  });
+}
+```
+
+### Pattern 4: Batch Operations
+
+```typescript
+async function processOrders(orderIds: string[]) {
+  const results = [];
+
+  for (const orderId of orderIds) {
+    // Load
+    const order = await orderRepository.findOne({ entityId: orderId });
+    if (!order) continue;
+
+    // Process
+    if (order.state.status === "pending") {
+      order.confirm();
+      await orderRepository.commit(order);
+      results.push({ orderId, status: "confirmed" });
+    }
+  }
+
+  return results;
+}
+```
+
+### Pattern 5: Error Handling
+
+```typescript
+async function safeUpdateUser(userId: string, updates: any) {
+  try {
+    const user = await userRepository.findOne({ entityId: userId });
+    if (!user) {
+      return { success: false, error: "User not found" };
+    }
+
+    user.updateProfile(updates);
+    await userRepository.commit(user);
+
+    return { success: true, user };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+}
+```
+
+## Best Practices
+
+<Callout type="tip">
+**1. Keep adapters simple**
+
+Adapters should only handle persistence. Business logic belongs in entities or mutations.
+
+```typescript
+// Good - Just persistence
+async getEventsByEntityId({ entityName, entityId }) {
+  return collection.find({ entityName, entityId }).toArray();
+}
+
+// Bad - Business logic in adapter
+async getEventsByEntityId({ entityName, entityId }) {
+  const events = await collection.find({ ...filters }).toArray();
+  // Don't validate or transform here
+  return events.filter(e => e.body.status === "active");
+}
+```
+</Callout>
+
+<Callout type="tip">
+**2. Use indexes for performance**
+
+Create database indexes on frequently queried fields:
+
+```typescript
+// MongoDB
+collection.createIndex({ entityName: 1, entityId: 1 });
+collection.createIndex({ eventCreatedAt: 1 });
+
+// PostgreSQL
+CREATE INDEX idx_entity ON events(entity_name, entity_id);
+CREATE INDEX idx_created ON events(event_created_at);
+```
+</Callout>
+
+<Callout type="tip">
+**3. Handle not-found gracefully**
+
+Always check if the entity exists:
+
+```typescript
+const user = await userRepository.findOne({ entityId: "user-123" });
+
+if (!user) {
+  // Handle missing entity
+  throw new Error("User not found");
+}
+
+// Use user safely
+console.log(user.state);
+```
+</Callout>
+
+<Callout type="tip">
+**4. Make plugins resilient**
+
+Plugin errors shouldn't break your application:
+
+```typescript
+const errorHandlingRepository = createRepository(User, {
+  adapter,
+  plugins: [myPlugin],
+  onPluginError: (error, plugin) => {
+    logger.error("Plugin failed", { error });
+    // Plugin error is logged but doesn't affect commit
+  }
+});
+```
+</Callout>
+
+<Callout type="tip">
+**5. Consider snapshots for large event stores**
+
+For entities with thousands of events, implement snapshots to avoid replaying all events:
+
+```typescript
+// Load from snapshot + recent events
+const snapshot = await getSnapshot(entityId);
+let state = snapshot.state;
+
+const recentEvents = await getEventsAfter(entityId, snapshot.lastEventIndex);
+
+for (const event of recentEvents) {
+  state = reducer(state, event);
+}
+```
+
+Ventyd supports snapshots in future versions.
+</Callout>
+
+## Troubleshooting
+
+### Entity Not Found
+
+```typescript
+const user = await userRepository.findOne({ entityId: "wrong-id" });
+
+if (!user) {
+  console.log("Entity not found - check entityId");
+  // Create new or return error
+}
+```
+
+### Commit Fails
+
+```typescript
+try {
+  await userRepository.commit(user);
+} catch (error) {
+  // Possible causes:
+  // - Invalid events (validation error)
+  // - Database connection error
+  // - Permission error
+  console.error("Commit failed:", error);
+}
+```
+
+### Plugin Error
+
+```typescript
+const repo = createRepository(User, {
+  adapter,
+  plugins: [myPlugin],
+  onPluginError: (error) => {
+    // Commit succeeded, but plugin failed
+    // Log and continue
+    logger.error("Plugin error", error);
+  }
+});
+```
+
+## Key Takeaways
+
+- **Repositories handle persistence** - save and load entities
+- **Adapters provide database abstraction** - swap databases easily
+- **Commits are atomic** - all events succeed or fail together
+- **Plugins enable side effects** - run after commits
+- **Load returns mutable entities** - includes full event history
+- **`findOne()` reconstructs state** - replays all events
+- **Errors are handled gracefully** - plugin failures don't break commits
+
+## Repository Lifecycle
+
+```
+1. Create repository with adapter
+   ↓
+2. Create/load entities
+   ↓
+3. Call mutations to change state
+   ↓
+4. Commit to save events
+   ↓
+5. Adapter persists to database
+   ↓
+6. Plugins execute after commit
+   ↓
+7. Load later to reconstruct state
+```
+
+<Callout type="info">
+**Next Steps**
+
+- [Adapters](/docs/storage-adapters) - Build custom adapters
+- [Plugins](/docs/plugins) - Create advanced plugins
+- [CQRS](/docs/core-concepts/cqrs) - Separate reads and writes
+</Callout>

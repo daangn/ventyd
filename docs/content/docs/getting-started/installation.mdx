@@ -1,0 +1,241 @@
+---
+title: Installation
+description: Install Ventyd and set up your validation library
+---
+
+# Installation
+
+Get Ventyd installed and choose your preferred validation library.
+
+## Install Ventyd
+
+Install the core Ventyd package using your favorite package manager:
+
+
+  
+    ```bash
+    pnpm add ventyd
+    ```
+  
+  
+    ```bash
+    yarn add ventyd
+    ```
+  
+  
+    ```bash
+    npm install ventyd
+    ```
+  
+
+
+## Choose a Validation Library
+
+Ventyd uses the [Standard Schema](https://standardschema.dev) specification, which means you can use any compatible validation library. We provide official integrations for the most popular options.
+
+### Valibot (Recommended)
+
+Valibot is lightweight, modular, and has excellent TypeScript support.
+
+
+  
+    ```bash
+    pnpm add valibot
+    ```
+  
+  
+    ```bash
+    yarn add valibot
+    ```
+  
+  
+    ```bash
+    npm install valibot
+    ```
+  
+
+
+**Why Valibot?**
+- Smallest bundle size (~1KB for basic schemas)
+- Modular - only import what you need
+- Excellent TypeScript inference
+- Fast validation performance
+
+### TypeBox
+
+TypeBox provides JSON Schema validation with strong typing.
+
+
+  
+    ```bash
+    pnpm add @sinclair/typebox @sinclair/typemap
+    ```
+  
+  
+    ```bash
+    yarn add @sinclair/typebox @sinclair/typemap
+    ```
+  
+  
+    ```bash
+    npm install @sinclair/typebox @sinclair/typemap
+    ```
+  
+
+
+**Why TypeBox?**
+- JSON Schema compatible
+- Runtime type checking
+- OpenAPI integration
+- Excellent for API validation
+
+### Zod
+
+Zod is popular, well-established, and has a large ecosystem.
+
+
+  
+    ```bash
+    pnpm add zod
+    ```
+  
+  
+    ```bash
+    yarn add zod
+    ```
+  
+  
+    ```bash
+    npm install zod
+    ```
+  
+
+
+**Why Zod?**
+- Large community and ecosystem
+- Comprehensive documentation
+- Many existing integrations
+- Fluent, chainable API
+
+### ArkType
+
+ArkType offers runtime type safety with a unique syntax.
+
+
+  
+    ```bash
+    pnpm add arktype
+    ```
+  
+  
+    ```bash
+    yarn add arktype
+    ```
+  
+  
+    ```bash
+    npm install arktype
+    ```
+  
+
+
+**Why ArkType?**
+- Ultra-fast validation (up to 10x faster than Zod)
+- Elegant, concise syntax
+- Excellent error messages
+- Great TypeScript integration
+
+### Other Libraries
+
+Any library that implements the [Standard Schema](https://standardschema.dev) specification will work with Ventyd. You can also use the `standard()` provider directly.
+
+## Quick Comparison
+
+| Library | Bundle Size | Performance | Ecosystem | TypeScript |
+|---------|------------|-------------|-----------|------------|
+| **Valibot** | ⭐⭐⭐⭐⭐ Smallest | ⭐⭐⭐⭐ Fast | ⭐⭐⭐ Growing | ⭐⭐⭐⭐⭐ Excellent |
+| **TypeBox** | ⭐⭐⭐⭐ Small | ⭐⭐⭐⭐⭐ Fastest | ⭐⭐⭐ Good | ⭐⭐⭐⭐ Great |
+| **Zod** | ⭐⭐⭐ Medium | ⭐⭐⭐ Good | ⭐⭐⭐⭐⭐ Largest | ⭐⭐⭐⭐ Great |
+| **ArkType** | ⭐⭐⭐⭐ Small | ⭐⭐⭐⭐⭐ Fastest | ⭐⭐⭐ Growing | ⭐⭐⭐⭐⭐ Excellent |
+
+## Verify Installation
+
+Create a simple test file to verify your installation:
+
+```typescript title="test.ts"
+import { defineSchema, defineReducer, Entity } from 'ventyd';
+import { valibot, v } from 'ventyd/valibot'; // or your chosen library
+
+const testSchema = defineSchema("test", {
+  schema: valibot({
+    event: {
+      created: v.object({
+        message: v.string()
+      })
+    },
+    state: v.object({
+      message: v.string()
+    })
+  }),
+  initialEventName: "test:created"
+});
+
+const testReducer = defineReducer(testSchema, (prevState, event) => {
+  if (event.eventName === "test:created") {
+    return { message: event.body.message };
+  }
+  return prevState;
+});
+
+class Test extends Entity(testSchema, testReducer) {}
+
+const test = Test.create({
+  body: { message: "Hello, Ventyd!" }
+});
+
+console.log("✅ Ventyd is installed correctly!");
+console.log("Message:", test.state.message);
+```
+
+Run it:
+
+```bash
+npx tsx test.ts
+```
+
+If you see the success message, you're all set!
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Quick Start"
+    description="Build your first event-sourced entity"
+    href="/docs/getting-started/quick-start"
+  />
+  <Card
+    title="Your First Entity"
+    description="Create a real-world example"
+    href="/docs/getting-started/your-first-entity"
+  />
+  <Card
+    title="Core Concepts"
+    description="Learn the fundamentals"
+    href="/docs/core-concepts"
+  />
+</Cards>
+
+<Callout type="warn">
+**TypeScript Configuration**
+
+Ventyd requires TypeScript 5.0 or higher. Make sure your `tsconfig.json` has:
+
+```json
+{
+  "compilerOptions": {
+    "strict": true,
+    "moduleResolution": "bundler" // or "node16"
+  }
+}
+```
+</Callout>

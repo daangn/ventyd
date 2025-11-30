@@ -1,0 +1,834 @@
+---
+title: Custom Storage Adapters
+description: Create custom storage adapters for any database. Examples include Redis, DynamoDB, Firestore, and more.
+---
+
+# Custom Storage Adapters
+
+Ventyd's adapter interface is simple but powerful. You can implement adapters for virtually any database. This guide covers creating custom adapters with examples for Redis, DynamoDB, and Firestore.
+
+## Adapter Interface Requirements
+
+All adapters must implement this interface:
+
+```typescript
+interface Adapter {
+  getEventsByEntityId(params: {
+    entityName: string;
+    entityId: string;
+  }): Promise<Event[]>;
+
+  commitEvents(params: {
+    events: Event[];
+  }): Promise<void>;
+}
+```
+
+Critical requirements:
+- **Chronological Order**: Events must be returned in the exact order they were created
+- **Atomicity**: All events in a commit must be persisted together or not at all
+- **Error Handling**: Errors should be clear and provide context
+- **Idempotency**: Handling duplicate events gracefully (usually via unique constraints)
+
+## Redis Adapter
+
+Redis is excellent for high-performance, in-memory event stores with optional persistence:
+
+```typescript
+import type { Adapter } from 'ventyd';
+import { createClient, RedisClientType } from 'redis';
+
+interface RedisAdapterOptions {
+  url?: string;
+  maxRetries?: number;
+  retryStrategy?: (retryCount: number) => number;
+}
+
+const createRedisAdapter = async (
+  options: RedisAdapterOptions = {}
+): Promise<Adapter> => {
+  const client = createClient({
+    url: options.url || 'redis://localhost:6379',
+    socket: {
+      reconnectStrategy: (retryCount) => {
+        const delay = Math.min(retryCount * 50, 500);
+        return delay;
+      }
+    }
+  });
+
+  // Connect to Redis
+  await client.connect();
+
+  // Subscribe to error events
+  client.on('error', (error) => {
+    console.error('[Redis] Connection error', error);
+  });
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      const key = `events:${entityName}:${entityId}`;
+
+      try {
+        // Redis ZRANGE returns events in score order (chronological)
+        const events = await client.zRange(key, 0, -1);
+
+        return events.map(e => {
+          try {
+            return JSON.parse(e);
+          } catch (error) {
+            console.error('[Redis] Failed to parse event', e);
+            return null;
+          }
+        }).filter(Boolean) as any[];
+      } catch (error) {
+        throw new Error(
+          `Failed to retrieve events for ${entityName}:${entityId}`,
+          { cause: error }
+        );
+      }
+    },
+
+    async commitEvents({ events }) {
+      if (events.length === 0) {
+        return;
+      }
+
+      try {
+        // Group events by entity
+        const eventsByEntity = new Map<string, typeof events>();
+
+        for (const event of events) {
+          const key = `${event.entityName}:${event.entityId}`;
+
+          if (!eventsByEntity.has(key)) {
+            eventsByEntity.set(key, []);
+          }
+
+          eventsByEntity.get(key)!.push(event);
+        }
+
+        // Commit each entity's events
+        for (const [entityKey, entityEvents] of eventsByEntity) {
+          const redisKey = `events:${entityKey}`;
+
+          // Use ZADD with INCR to maintain order
+          for (const event of entityEvents) {
+            const score = new Date(event.eventCreatedAt).getTime();
+
+            await client.zAdd(redisKey, {
+              score,
+              value: JSON.stringify(event)
+            });
+          }
+
+          // Optional: Set TTL for auto-cleanup
+          // await client.expire(redisKey, 86400 * 30); // 30 days
+        }
+      } catch (error) {
+        throw new Error('Failed to commit events to Redis', { cause: error });
+      }
+    }
+  };
+};
+```
+
+### Redis Adapter with Persistence
+
+For production use with AOF (Append-Only File):
+
+```typescript
+const createRedisPersistenceAdapter = async (): Promise<Adapter> => {
+  const client = createClient({
+    url: 'redis://localhost:6379'
+  });
+
+  await client.connect();
+
+  // Configure persistence
+  await client.configSet('appendonly', 'yes');
+  await client.configSet('appendfsync', 'everysec');
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      const key = `events:${entityName}:${entityId}`;
+      const eventStrings = await client.zRange(key, 0, -1);
+
+      return eventStrings.map(e => JSON.parse(e));
+    },
+
+    async commitEvents({ events }) {
+      if (events.length === 0) {
+        return;
+      }
+
+      // Use pipeline for atomic multi-operation
+      const pipeline = client.multi();
+
+      for (const event of events) {
+        const key = `events:${event.entityName}:${event.entityId}`;
+        const score = new Date(event.eventCreatedAt).getTime();
+
+        pipeline.zAdd(key, {
+          score,
+          value: JSON.stringify(event)
+        });
+      }
+
+      await pipeline.exec();
+    }
+  };
+};
+```
+
+## DynamoDB Adapter
+
+AWS DynamoDB adapter for serverless applications:
+
+```typescript
+import type { Adapter } from 'ventyd';
+import {
+  DynamoDBClient,
+  PutItemCommand,
+  QueryCommand
+} from '@aws-sdk/client-dynamodb';
+import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
+
+interface DynamoDBAdapterOptions {
+  region?: string;
+  tableName?: string;
+  endpoint?: string; // For local testing
+}
+
+const createDynamoDBAdapter = (
+  options: DynamoDBAdapterOptions = {}
+): Adapter => {
+  const {
+    region = process.env.AWS_REGION || 'us-east-1',
+    tableName = 'ventyd-events',
+    endpoint = undefined
+  } = options;
+
+  const client = new DynamoDBClient({
+    region,
+    ...(endpoint && { endpoint })
+  });
+
+  // Ensure table exists
+  const ensureTable = async () => {
+    try {
+      await client.send(
+        new QueryCommand({
+          TableName: tableName,
+          KeyConditionExpression: 'pk = :pk',
+          ExpressionAttributeValues: {
+            ':pk': { S: 'dummy' }
+          },
+          Limit: 1
+        })
+      );
+    } catch (error) {
+      console.warn('[DynamoDB] Table may not exist, attempting to create');
+      // Create table logic here
+    }
+  };
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      try {
+        const result = await client.send(
+          new QueryCommand({
+            TableName: tableName,
+            KeyConditionExpression:
+              'pk = :pk AND begins_with(sk, :sk)',
+            ExpressionAttributeValues: {
+              ':pk': { S: `${entityName}#${entityId}` },
+              ':sk': { S: 'EVENT#' }
+            },
+            ScanIndexForward: true // Ascending order
+          })
+        );
+
+        return (result.Items || []).map(item => {
+          const unmarshalled = unmarshall(item) as any;
+          return {
+            eventId: unmarshalled.eventId,
+            eventName: unmarshalled.eventName,
+            eventCreatedAt: unmarshalled.eventCreatedAt,
+            entityName: unmarshalled.entityName,
+            entityId: unmarshalled.entityId,
+            body: unmarshalled.body
+          };
+        });
+      } catch (error) {
+        throw new Error(
+          `Failed to retrieve events for ${entityName}:${entityId}`,
+          { cause: error }
+        );
+      }
+    },
+
+    async commitEvents({ events }) {
+      if (events.length === 0) {
+        return;
+      }
+
+      try {
+        // DynamoDB has a batch write limit of 25 items
+        for (let i = 0; i < events.length; i += 25) {
+          const batch = events.slice(i, i + 25);
+
+          await Promise.all(
+            batch.map(event =>
+              client.send(
+                new PutItemCommand({
+                  TableName: tableName,
+                  Item: marshall({
+                    pk: `${event.entityName}#${event.entityId}`,
+                    sk: `EVENT#${event.eventCreatedAt}#${event.eventId}`,
+                    eventId: event.eventId,
+                    eventName: event.eventName,
+                    eventCreatedAt: event.eventCreatedAt,
+                    entityName: event.entityName,
+                    entityId: event.entityId,
+                    body: event.body,
+                    createdAt: new Date().toISOString()
+                  }),
+                  ConditionExpression:
+                    'attribute_not_exists(eventId)' // Idempotent
+                })
+              )
+            )
+          );
+        }
+      } catch (error) {
+        if (error instanceof Error &&
+            error.message.includes('ConditionalCheckFailedException')) {
+          console.warn('[DynamoDB] Duplicate event (retry)');
+          return;
+        }
+
+        throw new Error('Failed to commit events to DynamoDB', {
+          cause: error
+        });
+      }
+    }
+  };
+};
+```
+
+## Cloud Firestore Adapter
+
+Google Cloud Firestore adapter for real-time applications:
+
+```typescript
+import type { Adapter } from 'ventyd';
+import {
+  Firestore,
+  collection,
+  query,
+  where,
+  orderBy,
+  getDocs,
+  writeBatch
+} from 'firebase/firestore';
+
+const createFirestoreAdapter = (db: Firestore): Adapter => {
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      try {
+        const eventsRef = collection(db, 'events');
+
+        const q = query(
+          eventsRef,
+          where('entityName', '==', entityName),
+          where('entityId', '==', entityId),
+          orderBy('eventCreatedAt', 'asc')
+        );
+
+        const snapshot = await getDocs(q);
+
+        return snapshot.docs.map(doc => ({
+          ...doc.data(),
+          id: doc.id
+        } as any));
+      } catch (error) {
+        throw new Error(
+          `Failed to retrieve events for ${entityName}:${entityId}`,
+          { cause: error }
+        );
+      }
+    },
+
+    async commitEvents({ events }) {
+      if (events.length === 0) {
+        return;
+      }
+
+      try {
+        const batch = writeBatch(db);
+        const eventsRef = collection(db, 'events');
+
+        for (const event of events) {
+          const docRef = doc(
+            eventsRef,
+            `${event.entityName}#${event.entityId}#${event.eventId}`
+          );
+
+          batch.set(docRef, {
+            ...event,
+            createdAt: new Date()
+          });
+        }
+
+        await batch.commit();
+      } catch (error) {
+        throw new Error('Failed to commit events to Firestore', {
+          cause: error
+        });
+      }
+    }
+  };
+};
+```
+
+## Elasticsearch Adapter
+
+For full-text searchable event stores:
+
+```typescript
+import type { Adapter } from 'ventyd';
+import { Client } from '@elastic/elasticsearch';
+
+const createElasticsearchAdapter = (indexName: string): Adapter => {
+  const client = new Client({
+    node: process.env.ELASTICSEARCH_URL || 'http://localhost:9200'
+  });
+
+  // Initialize index
+  const initializeIndex = async () => {
+    try {
+      await client.indices.create(
+        {
+          index: indexName,
+          mappings: {
+            properties: {
+              eventId: { type: 'keyword' },
+              eventName: { type: 'keyword' },
+              eventCreatedAt: { type: 'date' },
+              entityName: { type: 'keyword' },
+              entityId: { type: 'keyword' },
+              body: { type: 'object', enabled: true }
+            }
+          }
+        },
+        { ignore: [400] }
+      );
+    } catch (error) {
+      console.warn('[Elasticsearch] Index creation failed', error);
+    }
+  };
+
+  initializeIndex();
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      try {
+        const result = await client.search({
+          index: indexName,
+          query: {
+            bool: {
+              must: [
+                { term: { entityName } },
+                { term: { entityId } }
+              ]
+            }
+          },
+          sort: [
+            { eventCreatedAt: { order: 'asc' } }
+          ]
+        });
+
+        return result.hits.hits.map(hit => hit._source as any);
+      } catch (error) {
+        throw new Error(
+          `Failed to retrieve events for ${entityName}:${entityId}`,
+          { cause: error }
+        );
+      }
+    },
+
+    async commitEvents({ events }) {
+      if (events.length === 0) {
+        return;
+      }
+
+      try {
+        const bulkBody = events.flatMap(event => [
+          { index: { _index: indexName, _id: event.eventId } },
+          event
+        ]);
+
+        await client.bulk({ body: bulkBody });
+      } catch (error) {
+        throw new Error('Failed to commit events to Elasticsearch', {
+          cause: error
+        });
+      }
+    }
+  };
+};
+```
+
+## SQLite Adapter
+
+For lightweight, file-based storage:
+
+```typescript
+import type { Adapter } from 'ventyd';
+import Database from 'better-sqlite3';
+
+const createSQLiteAdapter = (dbPath: string): Adapter => {
+  const db = new Database(dbPath);
+
+  // Initialize schema
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS events (
+      id INTEGER PRIMARY KEY,
+      event_id TEXT UNIQUE NOT NULL,
+      event_name TEXT NOT NULL,
+      event_created_at TEXT NOT NULL,
+      entity_name TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_events_entity
+      ON events(entity_name, entity_id);
+
+    CREATE INDEX IF NOT EXISTS idx_events_time
+      ON events(event_created_at);
+  `);
+
+  const getStmt = db.prepare(`
+    SELECT * FROM events
+    WHERE entity_name = ? AND entity_id = ?
+    ORDER BY event_created_at ASC
+  `);
+
+  const insertStmt = db.prepare(`
+    INSERT INTO events
+    (event_id, event_name, event_created_at, entity_name, entity_id, body)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      try {
+        const events = getStmt.all(entityName, entityId) as any[];
+
+        return events.map(event => ({
+          ...event,
+          body: JSON.parse(event.body)
+        }));
+      } catch (error) {
+        throw new Error(
+          `Failed to retrieve events for ${entityName}:${entityId}`,
+          { cause: error }
+        );
+      }
+    },
+
+    async commitEvents({ events }) {
+      if (events.length === 0) {
+        return;
+      }
+
+      try {
+        const transaction = db.transaction((eventsToInsert: typeof events) => {
+          for (const event of eventsToInsert) {
+            insertStmt.run(
+              event.eventId,
+              event.eventName,
+              event.eventCreatedAt,
+              event.entityName,
+              event.entityId,
+              JSON.stringify(event.body)
+            );
+          }
+        });
+
+        transaction(events);
+      } catch (error) {
+        if (error instanceof Error &&
+            error.message.includes('UNIQUE constraint')) {
+          console.warn('[SQLite] Duplicate event (retry)');
+          return;
+        }
+
+        throw new Error('Failed to commit events to SQLite', {
+          cause: error
+        });
+      }
+    }
+  };
+};
+```
+
+## Custom Adapter Best Practices
+
+### 1. Implement Error Recovery
+
+```typescript
+const createRobustAdapter = (config: any): Adapter => {
+  const maxRetries = 3;
+
+  const retry = async <T>(fn: () => Promise<T>): Promise<T> => {
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        return await fn();
+      } catch (error) {
+        if (i === maxRetries - 1) throw error;
+
+        const delay = Math.pow(2, i) * 100; // Exponential backoff
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+
+    throw new Error('Retry failed');
+  };
+
+  return {
+    async getEventsByEntityId(params) {
+      return retry(() =>
+        fetchEventsFromDatabase(params)
+      );
+    },
+
+    async commitEvents(params) {
+      return retry(() =>
+        saveEventsToDatabse(params)
+      );
+    }
+  };
+};
+```
+
+### 2. Add Metrics and Logging
+
+```typescript
+const createMetricsAdapter = (adapter: Adapter): Adapter => {
+  const metrics = {
+    eventsRetrieved: 0,
+    eventsCommitted: 0,
+    errors: 0
+  };
+
+  return {
+    async getEventsByEntityId(params) {
+      try {
+        const events = await adapter.getEventsByEntityId(params);
+        metrics.eventsRetrieved += events.length;
+
+        console.log(
+          `[Adapter] Retrieved ${events.length} events for ` +
+          `${params.entityName}:${params.entityId}`
+        );
+
+        return events;
+      } catch (error) {
+        metrics.errors++;
+        throw error;
+      }
+    },
+
+    async commitEvents(params) {
+      try {
+        await adapter.commitEvents(params);
+        metrics.eventsCommitted += params.events.length;
+
+        console.log(
+          `[Adapter] Committed ${params.events.length} events`
+        );
+      } catch (error) {
+        metrics.errors++;
+        throw error;
+      }
+    }
+  };
+};
+```
+
+### 3. Implement Caching
+
+```typescript
+const createCachedAdapter = (adapter: Adapter): Adapter => {
+  const cache = new Map<string, any[]>();
+  const cacheTimeout = 5 * 60 * 1000; // 5 minutes
+
+  return {
+    async getEventsByEntityId(params) {
+      const key = `${params.entityName}:${params.entityId}`;
+      const cached = cache.get(key);
+
+      if (cached) {
+        return cached;
+      }
+
+      const events = await adapter.getEventsByEntityId(params);
+
+      cache.set(key, events);
+
+      // Clear cache after timeout
+      setTimeout(() => cache.delete(key), cacheTimeout);
+
+      return events;
+    },
+
+    async commitEvents(params) {
+      await adapter.commitEvents(params);
+
+      // Invalidate cache for affected entities
+      for (const event of params.events) {
+        const key = `${event.entityName}:${event.entityId}`;
+        cache.delete(key);
+      }
+    }
+  };
+};
+```
+
+## Testing Custom Adapters
+
+Test your custom adapter thoroughly:
+
+```typescript
+import { describe, it, expect } from 'vitest';
+
+describe('Custom Adapter', () => {
+  let adapter: Adapter;
+
+  beforeEach(() => {
+    adapter = createCustomAdapter(/* ... */);
+  });
+
+  it('should save and retrieve events in order', async () => {
+    const events = [
+      createEvent('event1', 'user:created'),
+      createEvent('event2', 'user:updated'),
+      createEvent('event3', 'user:deleted')
+    ];
+
+    await adapter.commitEvents({ events });
+
+    const retrieved = await adapter.getEventsByEntityId({
+      entityName: 'user',
+      entityId: 'user-123'
+    });
+
+    expect(retrieved).toHaveLength(3);
+    expect(retrieved[0].eventName).toBe('user:created');
+    expect(retrieved[1].eventName).toBe('user:updated');
+  });
+
+  it('should handle duplicate events gracefully', async () => {
+    const event = createEvent('event1', 'user:created');
+
+    await adapter.commitEvents({ events: [event] });
+    await adapter.commitEvents({ events: [event] }); // Duplicate
+
+    const retrieved = await adapter.getEventsByEntityId({
+      entityName: 'user',
+      entityId: 'user-123'
+    });
+
+    // Should only have one event
+    expect(retrieved.filter(e => e.eventId === event.eventId)).toHaveLength(1);
+  });
+
+  it('should maintain event order across multiple commits', async () => {
+    const batch1 = [
+      createEvent('event1', 'user:created'),
+      createEvent('event2', 'user:updated')
+    ];
+
+    const batch2 = [
+      createEvent('event3', 'user:deleted')
+    ];
+
+    await adapter.commitEvents({ events: batch1 });
+    await new Promise(r => setTimeout(r, 100)); // Small delay
+    await adapter.commitEvents({ events: batch2 });
+
+    const retrieved = await adapter.getEventsByEntityId({
+      entityName: 'user',
+      entityId: 'user-123'
+    });
+
+    const timestamps = retrieved.map(e => e.eventCreatedAt);
+    const isSorted = timestamps.every(
+      (t, i) => i === 0 || t >= timestamps[i - 1]
+    );
+
+    expect(isSorted).toBe(true);
+  });
+});
+```
+
+## Comparison of Custom Adapters
+
+| Adapter | Use Case | Performance | Scalability | Persistence |
+|---------|----------|-------------|-------------|------------|
+| Redis | Cache/Queue | Fastest | Horizontal | Optional |
+| DynamoDB | Serverless | Very Fast | Horizontal | Always |
+| Firestore | Real-time | Fast | Horizontal | Always |
+| Elasticsearch | Search | Fast | Horizontal | Always |
+| SQLite | Local Dev | Fast | Vertical | File-based |
+
+## Next Steps
+
+- **[Storage Overview](/docs/storage)** - Back to storage guide
+- **[MongoDB Adapter](/docs/storage/mongodb)** - Production document store
+- **[PostgreSQL Adapter](/docs/storage/postgresql)** - Production relational DB
+
+## Common Questions
+
+**Q: Which database should I choose?**
+
+A: Consider your needs:
+- **Development**: In-Memory or SQLite
+- **Small production**: PostgreSQL or MongoDB
+- **High scale**: MongoDB, DynamoDB, or Elasticsearch
+- **Real-time**: Firestore
+- **Cache layer**: Redis
+
+**Q: Do I need to implement every method?**
+
+A: Yes, both `getEventsByEntityId` and `commitEvents` are required. The interface is minimal but intentional.
+
+**Q: How do I handle connection pooling?**
+
+A: Use your database client's native pooling:
+- PostgreSQL: `pg.Pool`
+- MongoDB: Connection pooling built-in
+- Redis: `redis` client handles it
+- DynamoDB: AWS SDK handles it
+
+**Q: Can I have multiple adapters?**
+
+A: Yes, you can create different repositories with different adapters:
+
+```typescript
+const inMemoryRepo = createRepository(User, {
+  adapter: createInMemoryAdapter()
+});
+
+const mongoRepo = createRepository(User, {
+  adapter: createMongoDBAdapter(...)
+});
+```
+
+<Callout type="info">
+Each repository uses its own adapter independently. Events are not automatically synchronized between them.
+</Callout>

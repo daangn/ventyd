@@ -1,0 +1,339 @@
+---
+title: Quick Start
+description: Build your first event-sourced entity in 5 minutes
+---
+
+# Quick Start
+
+This guide will walk you through creating your first event-sourced entity with Ventyd. We'll build a simple **User** entity that can be created and updated.
+
+<Callout type="info">
+**Prerequisites**
+
+Make sure you've [installed Ventyd](/docs/getting-started/installation) and chosen a validation library before starting this guide.
+</Callout>
+
+## Step 1: Define Your Schema
+
+First, let's define what events can happen to a user and what state they have.
+
+```typescript title="user.schema.ts"
+import { defineSchema } from 'ventyd';
+import { valibot, v } from 'ventyd/valibot';
+
+export const userSchema = defineSchema("user", {
+  schema: valibot({
+    event: {
+      // Event that creates a new user
+      created: v.object({
+        email: v.pipe(v.string(), v.email()),
+        name: v.string(),
+      }),
+      // Event that updates user profile
+      profile_updated: v.object({
+        name: v.optional(v.string()),
+        bio: v.optional(v.string()),
+      }),
+    },
+    state: v.object({
+      email: v.string(),
+      name: v.string(),
+      bio: v.optional(v.string()),
+    }),
+  }),
+  initialEventName: "user:created", // The event that creates new users
+});
+```
+
+**What's happening here?**
+
+- `event.created` - Defines the data needed to create a user
+- `event.profile_updated` - Defines what can be updated
+- `state` - Defines what properties a user has
+- `initialEventName` - Tells Ventyd which event creates new entities
+
+<Callout type="warn">
+**Event Naming Convention**
+
+Ventyd automatically adds the entity name as a prefix to event names. So `created` becomes `user:created`, and `profile_updated` becomes `user:profile_updated`.
+</Callout>
+
+## Step 2: Create a Reducer
+
+The reducer is a function that takes the previous state and an event, and returns the new state.
+
+```typescript title="user.reducer.ts"
+import { defineReducer } from 'ventyd';
+import { userSchema } from './user.schema';
+
+export const userReducer = defineReducer(userSchema, (prevState, event) => {
+  switch (event.eventName) {
+    case "user:created":
+      // When a user is created, set initial state
+      return {
+        email: event.body.email,
+        name: event.body.name,
+        bio: undefined,
+      };
+
+    case "user:profile_updated":
+      // When profile is updated, merge changes
+      return {
+        ...prevState,
+        ...(event.body.name && { name: event.body.name }),
+        ...(event.body.bio !== undefined && { bio: event.body.bio }),
+      };
+
+    default:
+      // For unknown events, return state unchanged
+      return prevState;
+  }
+});
+```
+
+**Why a reducer?**
+
+Reducers are **pure functions** - they always produce the same output for the same input. This means:
+- Events can be replayed to rebuild state
+- State is predictable and testable
+- Time travel debugging is possible
+
+<Callout type="info">
+**Reducer Tips**
+
+- Always handle the `default` case
+- Never mutate `prevState` - return a new object
+- Use event data from `event.body`
+- Use event metadata like `event.eventCreatedAt` for timestamps
+</Callout>
+
+## Step 3: Create Your Entity Class
+
+Now let's add business logic to our user entity.
+
+```typescript title="user.entity.ts"
+import { Entity, mutation } from 'ventyd';
+import { userSchema } from './user.schema';
+import { userReducer } from './user.reducer';
+
+export class User extends Entity(userSchema, userReducer) {
+  // Getters for easy property access
+  get email() {
+    return this.state.email;
+  }
+
+  get name() {
+    return this.state.name;
+  }
+
+  get bio() {
+    return this.state.bio;
+  }
+
+  // Business logic: Update profile
+  updateProfile = mutation(
+    this,
+    (dispatch, updates: { name?: string; bio?: string }) => {
+      // Validate business rules
+      if (!updates.name && updates.bio === undefined) {
+        throw new Error("Must provide at least one field to update");
+      }
+
+      // Dispatch the event
+      dispatch("user:profile_updated", updates);
+    }
+  );
+}
+```
+
+**What is `mutation()`?**
+
+The `mutation()` helper creates type-safe mutation methods that:
+- Enforce readonly constraints (can't mutate loaded entities)
+- Provide access to `this` for business logic
+- Give you a `dispatch` function to emit events
+
+## Step 4: Set Up a Repository
+
+The repository handles saving and loading entities from your database.
+
+```typescript title="user.repository.ts"
+import { createRepository } from 'ventyd';
+import type { Adapter } from 'ventyd';
+import { User } from './user.entity';
+
+// Simple in-memory adapter for development
+const createInMemoryAdapter = (): Adapter => {
+  const events: any[] = [];
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      return events.filter(
+        e => e.entityName === entityName && e.entityId === entityId
+      );
+    },
+    async commitEvents({ events: newEvents }) {
+      events.push(...newEvents);
+    }
+  };
+};
+
+// Create the repository
+export const userRepository = createRepository(User, {
+  adapter: createInMemoryAdapter()
+});
+```
+
+<Callout type="warn">
+**In-Memory Adapter**
+
+The in-memory adapter is great for development and testing, but **don't use it in production**! Data is lost when the process restarts. See [Storage Adapters](/docs/storage) for production options.
+</Callout>
+
+## Step 5: Use Your Entity!
+
+Now you can create and manipulate users:
+
+```typescript title="main.ts"
+import { User } from './user.entity';
+import { userRepository } from './user.repository';
+
+async function main() {
+  // Create a new user
+  const user = User.create({
+    body: {
+      email: "alice@example.com",
+      name: "Alice",
+    }
+  });
+
+  console.log("Created user:", user.entityId);
+  console.log("Email:", user.email);
+  console.log("Name:", user.name);
+
+  // Update the profile
+  user.updateProfile({
+    bio: "Software engineer and TypeScript enthusiast"
+  });
+
+  // Save to storage
+  await userRepository.commit(user);
+  console.log("✅ User saved!");
+
+  // Later... retrieve the user
+  const retrieved = await userRepository.findOne({
+    entityId: user.entityId
+  });
+
+  if (retrieved) {
+    console.log("Retrieved user:", retrieved.name);
+    console.log("Bio:", retrieved.bio);
+    console.log("Total events:", retrieved.version); // Version = number of events
+  }
+}
+
+main();
+```
+
+**Output:**
+```
+Created user: user_abc123
+Email: alice@example.com
+Name: Alice
+✅ User saved!
+Retrieved user: Alice
+Bio: Software engineer and TypeScript enthusiast
+Total events: 2
+```
+
+## What Just Happened?
+
+Let's trace what happened under the hood:
+
+1. **User.create()** dispatched a `user:created` event
+2. **user.updateProfile()** dispatched a `user:profile_updated` event
+3. **userRepository.commit()** saved both events to storage
+4. **userRepository.findOne()** loaded events and replayed them through the reducer to rebuild state
+
+The beauty of event sourcing: you have a complete audit trail!
+
+```typescript
+// You can see all events
+console.log(user.events);
+// [
+//   { eventName: 'user:created', body: { email: '...', name: 'Alice' } },
+//   { eventName: 'user:profile_updated', body: { bio: '...' } }
+// ]
+```
+
+## Next Steps
+
+Congratulations! You've built your first event-sourced entity. Here's what to explore next:
+
+<Cards>
+  <Card
+    title="Your First Entity"
+    description="Build a more complete example with deletions and validations"
+    href="/docs/getting-started/your-first-entity"
+  />
+  <Card
+    title="Core Concepts"
+    description="Deep dive into events, reducers, and CQRS"
+    href="/docs/core-concepts"
+  />
+  <Card
+    title="Storage Adapters"
+    description="Connect to a real database like MongoDB or PostgreSQL"
+    href="/docs/storage"
+  />
+  <Card
+    title="Validation Libraries"
+    description="Try different validation libraries like Zod or TypeBox"
+    href="/docs/validation"
+  />
+</Cards>
+
+## Troubleshooting
+
+### "Type error in reducer"
+
+Make sure your reducer handles all event types and returns the correct state shape:
+
+```typescript
+// ❌ Wrong - missing return
+case "user:created":
+  { email: event.body.email } // Missing return!
+
+// ✅ Correct
+case "user:created":
+  return { email: event.body.email, name: event.body.name };
+```
+
+### "Cannot read property of undefined"
+
+You might be accessing a property before the entity is created. Always check the entity exists:
+
+```typescript
+const user = await userRepository.findOne({ entityId: "xyz" });
+if (!user) {
+  console.log("User not found");
+  return;
+}
+console.log(user.email); // Safe
+```
+
+### "Validation error"
+
+Check that your event data matches the schema:
+
+```typescript
+// ❌ Wrong - missing required field
+User.create({
+  body: { email: "test@example.com" } // Missing 'name'
+});
+
+// ✅ Correct
+User.create({
+  body: { email: "test@example.com", name: "Test User" }
+});
+```

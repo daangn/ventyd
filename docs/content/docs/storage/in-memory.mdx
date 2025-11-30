@@ -1,0 +1,484 @@
+---
+title: In-Memory Adapter
+description: Use the in-memory adapter for development, testing, and prototyping. Fast, simple, and requires no external dependencies.
+---
+
+# In-Memory Adapter
+
+The in-memory adapter stores events in a JavaScript array. It's perfect for development, testing, and prototyping when you don't need persistent storage.
+
+## Overview
+
+The in-memory adapter provides:
+
+- ✅ Zero external dependencies
+- ✅ Fast in-memory operations
+- ✅ Simple implementation
+- ✅ Easy debugging
+- ❌ Data lost on restart
+- ❌ Single-process only
+- ❌ Not suitable for production
+
+## Basic Implementation
+
+The simplest in-memory adapter:
+
+```typescript
+import type { Adapter } from 'ventyd';
+
+const createInMemoryAdapter = (): Adapter => {
+  const events: any[] = [];
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      return events.filter(e =>
+        e.entityName === entityName && e.entityId === entityId
+      );
+    },
+
+    async commitEvents({ events: newEvents }) {
+      events.push(...newEvents);
+    }
+  };
+};
+
+// Usage
+const adapter = createInMemoryAdapter();
+const userRepository = createRepository(User, { adapter });
+```
+
+## Production-Ready In-Memory Adapter
+
+For testing and development environments that need more robust features:
+
+```typescript
+import type { Adapter, Event } from 'ventyd';
+
+interface InMemoryAdapterOptions {
+  debug?: boolean;
+  maxEvents?: number;
+}
+
+const createInMemoryAdapter = (
+  options: InMemoryAdapterOptions = {}
+): Adapter => {
+  const events: Event[] = [];
+  const { debug = false, maxEvents = 100000 } = options;
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      if (debug) {
+        console.log(`[InMemory] Fetching events for ${entityName}:${entityId}`);
+      }
+
+      const entityEvents = events.filter(e =>
+        e.entityName === entityName && e.entityId === entityId
+      );
+
+      if (debug) {
+        console.log(`[InMemory] Found ${entityEvents.length} events`);
+      }
+
+      return entityEvents;
+    },
+
+    async commitEvents({ events: newEvents }) {
+      if (newEvents.length === 0) {
+        return;
+      }
+
+      if (events.length + newEvents.length > maxEvents) {
+        throw new Error(
+          `In-memory event store limit exceeded (${maxEvents} events)`
+        );
+      }
+
+      if (debug) {
+        console.log(`[InMemory] Committing ${newEvents.length} events`);
+        newEvents.forEach(e => {
+          console.log(`  - ${e.eventName} (${e.entityName}:${e.entityId})`);
+        });
+      }
+
+      events.push(...newEvents);
+    }
+  };
+};
+```
+
+## With Snapshot Support
+
+Add snapshot functionality for faster entity loading:
+
+```typescript
+import type { Adapter, Event } from 'ventyd';
+
+interface Snapshot {
+  entityName: string;
+  entityId: string;
+  state: any;
+  eventCount: number;
+  createdAt: string;
+}
+
+const createInMemoryAdapterWithSnapshots = (): Adapter & {
+  saveSnapshot(snapshot: Snapshot): Promise<void>;
+  getSnapshot(entityName: string, entityId: string): Promise<Snapshot | null>;
+  clearSnapshots(): void;
+} => {
+  const events: Event[] = [];
+  const snapshots = new Map<string, Snapshot>();
+
+  const getSnapshotKey = (entityName: string, entityId: string) =>
+    `${entityName}:${entityId}`;
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      const snapshot = snapshots.get(getSnapshotKey(entityName, entityId));
+
+      if (snapshot) {
+        // Return only events after the snapshot
+        return events.filter(e =>
+          e.entityName === entityName &&
+          e.entityId === entityId &&
+          new Date(e.eventCreatedAt).getTime() >=
+            new Date(snapshot.createdAt).getTime()
+        );
+      }
+
+      // Return all events
+      return events.filter(e =>
+        e.entityName === entityName && e.entityId === entityId
+      );
+    },
+
+    async commitEvents({ events: newEvents }) {
+      events.push(...newEvents);
+    },
+
+    async saveSnapshot(snapshot: Snapshot) {
+      snapshots.set(
+        getSnapshotKey(snapshot.entityName, snapshot.entityId),
+        snapshot
+      );
+    },
+
+    async getSnapshot(entityName: string, entityId: string) {
+      return snapshots.get(getSnapshotKey(entityName, entityId)) || null;
+    },
+
+    clearSnapshots() {
+      snapshots.clear();
+    }
+  };
+};
+```
+
+## Usage Examples
+
+### Simple Testing
+
+```typescript
+import { describe, it, expect } from 'vitest';
+
+describe('User Domain', () => {
+  it('should create and update user', async () => {
+    const adapter = createInMemoryAdapter();
+    const userRepository = createRepository(User, { adapter });
+
+    // Create user
+    const user = User.create({
+      body: {
+        nickname: 'JohnDoe',
+        email: 'john@example.com'
+      }
+    });
+
+    // Update user
+    user.updateProfile({ bio: 'Software Engineer' });
+
+    // Commit
+    await userRepository.commit(user);
+
+    // Retrieve
+    const retrieved = await userRepository.findOne({
+      entityId: user.entityId
+    });
+
+    expect(retrieved?.nickname).toBe('JohnDoe');
+    expect(retrieved?.bio).toBe('Software Engineer');
+  });
+});
+```
+
+### Integration Testing
+
+```typescript
+describe('Order Processing', () => {
+  let adapter: Adapter;
+  let orderRepository: Repository<Order>;
+
+  beforeEach(() => {
+    adapter = createInMemoryAdapter({ debug: false });
+    orderRepository = createRepository(Order, { adapter });
+  });
+
+  it('should process complete order lifecycle', async () => {
+    const order = Order.create({
+      body: {
+        customerId: 'customer-1',
+        items: [
+          { productId: 'product-1', quantity: 2, price: 29.99 }
+        ],
+        total: 59.98
+      }
+    });
+
+    // Perform operations
+    order.ship({ trackingNumber: 'TRACK123' });
+    order.confirm();
+
+    await orderRepository.commit(order);
+
+    const loaded = await orderRepository.findOne({
+      entityId: order.entityId
+    });
+
+    expect(loaded?.status).toBe('confirmed');
+    expect(loaded?.trackingNumber).toBe('TRACK123');
+  });
+});
+```
+
+### Development Environment
+
+```typescript
+// config.ts
+import type { Adapter } from 'ventyd';
+
+let adapter: Adapter;
+
+if (process.env.NODE_ENV === 'development') {
+  // Use in-memory for development
+  adapter = createInMemoryAdapter({
+    debug: process.env.DEBUG === 'true',
+    maxEvents: 50000
+  });
+} else {
+  // Use MongoDB for production
+  adapter = createMongoDBAdapter(
+    process.env.MONGODB_URI!,
+    'ventyd-events'
+  );
+}
+
+export { adapter };
+```
+
+## Best Practices
+
+### 1. Enable Debug Mode During Development
+
+```typescript
+const adapter = createInMemoryAdapter({
+  debug: true // See all operations
+});
+```
+
+### 2. Set Memory Limits
+
+```typescript
+const adapter = createInMemoryAdapter({
+  maxEvents: 100000 // Prevent memory overflow
+});
+```
+
+### 3. Use for Unit Tests
+
+```typescript
+// ✅ Good - Fast, isolated tests
+describe('User events', () => {
+  it('should handle updates', async () => {
+    const adapter = createInMemoryAdapter();
+    // Test logic
+  });
+});
+```
+
+### 4. Clear State Between Tests
+
+```typescript
+describe('Order Processing', () => {
+  let adapter: Adapter;
+
+  beforeEach(() => {
+    // Fresh adapter for each test
+    adapter = createInMemoryAdapter();
+  });
+});
+```
+
+## Common Patterns
+
+### Testing Event Sequences
+
+```typescript
+it('should maintain correct event sequence', async () => {
+  const adapter = createInMemoryAdapter();
+  const repo = createRepository(User, { adapter });
+
+  const user = User.create({
+    body: { nickname: 'John', email: 'john@example.com' }
+  });
+
+  user.updateProfile({ bio: 'Engineer' });
+  user.updateProfile({ bio: 'Senior Engineer' });
+
+  await repo.commit(user);
+
+  // Retrieve and verify sequence
+  const events = await adapter.getEventsByEntityId({
+    entityName: 'user',
+    entityId: user.entityId
+  });
+
+  expect(events.map(e => e.eventName)).toEqual([
+    'user:created',
+    'user:profile_updated',
+    'user:profile_updated'
+  ]);
+});
+```
+
+### Debugging Event Replay
+
+```typescript
+it('should correctly replay all events', async () => {
+  const adapter = createInMemoryAdapter({ debug: true });
+  const repo = createRepository(User, { adapter });
+
+  const user = User.create({
+    body: { nickname: 'John', email: 'john@example.com' }
+  });
+
+  user.updateProfile({ bio: 'Engineer' });
+  await repo.commit(user);
+
+  // Load fresh instance and replay all events
+  const loaded = await repo.findOne({ entityId: user.entityId });
+
+  // State should be identical
+  expect(loaded?.state).toEqual(user.state);
+});
+```
+
+### Testing Error Conditions
+
+```typescript
+it('should prevent invalid operations', async () => {
+  const adapter = createInMemoryAdapter();
+  const repo = createRepository(User, { adapter });
+
+  const user = User.create({
+    body: { nickname: 'John', email: 'john@example.com' }
+  });
+
+  await repo.commit(user);
+
+  const loaded = await repo.findOne({ entityId: user.entityId });
+
+  // Loaded entities are read-only
+  expect(() => {
+    loaded?.updateProfile({ bio: 'Engineer' });
+  }).toThrow();
+});
+```
+
+## Limitations
+
+The in-memory adapter has several important limitations:
+
+### No Persistence
+
+Data is lost when the process exits:
+
+```typescript
+const adapter = createInMemoryAdapter();
+
+// Data exists in this process
+await commitSomeEvents(adapter);
+
+// Process exits...
+// All data is lost
+```
+
+### Single Process Only
+
+Each process has its own event store:
+
+```typescript
+// Process A
+const adapterA = createInMemoryAdapter();
+
+// Process B
+const adapterB = createInMemoryAdapter(); // Different store!
+```
+
+### Memory Usage
+
+Unbounded growth without cleanup:
+
+```typescript
+// ⚠️ Warning: This will consume all available memory
+const adapter = createInMemoryAdapter({ maxEvents: Infinity });
+
+for (let i = 0; i < 1000000; i++) {
+  await commitEvents(adapter, generateEvents());
+}
+```
+
+## When NOT to Use In-Memory
+
+<Callout type="warning">
+Do NOT use the in-memory adapter for:
+- Production workloads
+- Multi-process deployments
+- Long-running processes that need data persistence
+- Systems requiring data durability
+</Callout>
+
+## Migration to Production
+
+When ready to move to production, switch to a persistent adapter:
+
+```typescript
+// Before: Development
+const adapter = createInMemoryAdapter();
+
+// After: Production
+const adapter = createMongoDBAdapter(
+  process.env.MONGODB_URI!,
+  'ventyd-events'
+);
+
+// No other code changes needed!
+const userRepository = createRepository(User, { adapter });
+```
+
+## Comparison with Other Adapters
+
+| Feature | In-Memory | MongoDB | PostgreSQL |
+|---------|-----------|---------|------------|
+| Development | ✅ | ✅ | ✅ |
+| Testing | ✅ | ✅ | ✅ |
+| Production | ❌ | ✅ | ✅ |
+| Persistence | ❌ | ✅ | ✅ |
+| Setup | Simple | Medium | Medium |
+| Performance | Fastest | Fast | Fast |
+| Scalability | Single PC | Horizontal | Vertical |
+
+## Next Steps
+
+- **[MongoDB Adapter](/docs/storage/mongodb)** - For document-based production storage
+- **[PostgreSQL Adapter](/docs/storage/postgresql)** - For relational database production storage
+- **[Custom Adapters](/docs/storage/custom-adapters)** - For other databases

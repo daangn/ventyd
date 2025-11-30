@@ -1,0 +1,561 @@
+---
+title: Analytics Plugin
+description: Track business metrics and user behavior with the Analytics Plugin
+---
+
+# Analytics Plugin
+
+The Analytics Plugin captures all entity events and forwards them to your analytics service, enabling business intelligence and user behavior tracking.
+
+## Overview
+
+Analytics plugins automatically track all committed events, providing insights into:
+
+- User actions and behavior patterns
+- Business process flows
+- Feature usage and adoption
+- Entity lifecycle events
+- Custom business metrics
+
+## Basic Implementation
+
+### Simple Analytics Plugin
+
+```typescript
+import type { Plugin } from 'ventyd';
+
+const analyticsPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, events }) {
+    for (const event of events) {
+      await analytics.track({
+        event: event.eventName,
+        userId: entityId,
+        properties: event.body,
+        timestamp: event.eventCreatedAt
+      });
+    }
+  }
+};
+```
+
+### Using with Repository
+
+```typescript
+import { createRepository } from 'ventyd';
+
+const userRepository = createRepository(User, {
+  adapter,
+  plugins: [analyticsPlugin]
+});
+
+// Events are automatically tracked
+const user = User.create({ body: { email: 'john@example.com' } });
+await userRepository.commit(user);
+// Automatically tracked: user:created event
+```
+
+## Advanced Implementation
+
+### Analytics with Entity Context
+
+Include entity metadata for better segmentation:
+
+```typescript
+const advancedAnalyticsPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, events, state }) {
+    for (const event of events) {
+      await analytics.track({
+        // Event details
+        event: event.eventName,
+        entityType: entityName,
+        entityId,
+
+        // Entity context (varies by type)
+        ...(entityName === 'user' && {
+          userId: entityId,
+          userEmail: state.email,
+          userTier: state.tier
+        }),
+        ...(entityName === 'order' && {
+          orderId: entityId,
+          orderTotal: state.total,
+          orderStatus: state.status
+        }),
+
+        // Event data
+        properties: {
+          ...event.body,
+          timestamp: event.eventCreatedAt
+        }
+      });
+    }
+  }
+};
+```
+
+### Batch Event Tracking
+
+Efficiently send events to analytics in batches:
+
+```typescript
+const batchAnalyticsPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, events }) {
+    // Batch events for bulk tracking
+    const eventBatch = events.map(event => ({
+      event: event.eventName,
+      entityType: entityName,
+      entityId,
+      properties: event.body,
+      timestamp: event.eventCreatedAt
+    }));
+
+    // Send all events at once (more efficient)
+    await analytics.batchTrack(eventBatch);
+  }
+};
+```
+
+### Event Classification
+
+Track events with custom categories and properties:
+
+```typescript
+const categorizedAnalyticsPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, events, state }) {
+    for (const event of events) {
+      const eventType = classifyEvent(event.eventName);
+
+      await analytics.track({
+        event: event.eventName,
+        category: eventType.category,
+        priority: eventType.priority,
+        entityId,
+        entityName,
+
+        properties: {
+          ...event.body,
+          entityState: state, // Include state for context
+          eventId: event.eventId
+        },
+
+        timestamp: event.eventCreatedAt
+      });
+    }
+  }
+};
+
+function classifyEvent(eventName: string) {
+  if (eventName.includes('created')) {
+    return { category: 'lifecycle', priority: 'high' };
+  }
+  if (eventName.includes('deleted')) {
+    return { category: 'lifecycle', priority: 'high' };
+  }
+  if (eventName.includes('updated')) {
+    return { category: 'modification', priority: 'normal' };
+  }
+  return { category: 'other', priority: 'low' };
+}
+```
+
+## Real-World Examples
+
+### E-Commerce Order Analytics
+
+Track order lifecycle and customer behavior:
+
+```typescript
+const ecommerceAnalyticsPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, events, state }) {
+    if (entityName !== 'order') return;
+
+    for (const event of events) {
+      switch (event.eventName) {
+        case 'order:created':
+          await analytics.track({
+            event: 'order_placed',
+            orderId: entityId,
+            properties: {
+              items: event.body.items.length,
+              total: event.body.total,
+              currency: event.body.currency
+            }
+          });
+          break;
+
+        case 'order:payment_confirmed':
+          await analytics.track({
+            event: 'payment_confirmed',
+            orderId: entityId,
+            properties: {
+              amount: event.body.amount,
+              method: event.body.method
+            }
+          });
+          break;
+
+        case 'order:shipped':
+          await analytics.track({
+            event: 'order_shipped',
+            orderId: entityId,
+            properties: {
+              trackingNumber: event.body.trackingNumber,
+              estimatedDelivery: event.body.estimatedDelivery
+            }
+          });
+          break;
+
+        case 'order:delivered':
+          await analytics.track({
+            event: 'order_delivered',
+            orderId: entityId,
+            properties: {
+              daysToDeliver: calculateDays(
+                state.createdAt,
+                event.eventCreatedAt
+              ),
+              deliveryDate: event.eventCreatedAt
+            }
+          });
+          break;
+
+        case 'order:cancelled':
+          await analytics.track({
+            event: 'order_cancelled',
+            orderId: entityId,
+            properties: {
+              reason: event.body.reason,
+              refundAmount: state.total,
+              daysActive: calculateDays(
+                state.createdAt,
+                event.eventCreatedAt
+              )
+            }
+          });
+          break;
+      }
+    }
+  }
+};
+```
+
+### SaaS User Engagement Analytics
+
+Track user signups, activity, and engagement:
+
+```typescript
+const saasAnalyticsPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, events, state }) {
+    if (entityName !== 'user') return;
+
+    for (const event of events) {
+      switch (event.eventName) {
+        case 'user:created':
+          await analytics.track({
+            event: 'user_signup',
+            userId: entityId,
+            properties: {
+              email: event.body.email,
+              source: event.body.source,
+              signupAt: event.eventCreatedAt
+            }
+          });
+          break;
+
+        case 'user:profile_completed':
+          await analytics.track({
+            event: 'profile_completed',
+            userId: entityId,
+            properties: {
+              completionTime: calculateTime(
+                state.createdAt,
+                event.eventCreatedAt
+              )
+            }
+          });
+          break;
+
+        case 'user:subscription_started':
+          await analytics.track({
+            event: 'subscription_started',
+            userId: entityId,
+            properties: {
+              plan: event.body.plan,
+              billingCycle: event.body.billingCycle,
+              amount: event.body.amount
+            }
+          });
+          break;
+
+        case 'user:subscription_cancelled':
+          await analytics.track({
+            event: 'subscription_cancelled',
+            userId: entityId,
+            properties: {
+              plan: state.plan,
+              churnReason: event.body.reason,
+              lifetime: calculateTime(
+                state.subscriptionStarted,
+                event.eventCreatedAt
+              )
+            }
+          });
+          break;
+      }
+    }
+  }
+};
+```
+
+## Integration Examples
+
+### Mixpanel Integration
+
+```typescript
+import Mixpanel from 'mixpanel';
+
+const mixpanelAnalyticsPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, events, state }) {
+    const mixpanel = Mixpanel.init(process.env.MIXPANEL_TOKEN);
+
+    for (const event of events) {
+      mixpanel.track(entityId, event.eventName, {
+        entityType: entityName,
+        ...event.body,
+        timestamp: new Date(event.eventCreatedAt).getTime()
+      });
+    }
+  }
+};
+```
+
+### Segment Integration
+
+```typescript
+import Analytics from 'analytics-node';
+
+const segmentAnalyticsPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, events }) {
+    const analytics = new Analytics(process.env.SEGMENT_WRITE_KEY);
+
+    for (const event of events) {
+      await analytics.track({
+        userId: entityId,
+        event: event.eventName,
+        properties: {
+          entityType: entityName,
+          ...event.body
+        },
+        timestamp: new Date(event.eventCreatedAt)
+      });
+    }
+  }
+};
+```
+
+### PostHog Integration
+
+```typescript
+import { PostHog } from 'posthog-node';
+
+const posthogAnalyticsPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, events, state }) {
+    const posthog = new PostHog(process.env.POSTHOG_API_KEY);
+
+    for (const event of events) {
+      posthog.capture({
+        distinctId: entityId,
+        event: event.eventName,
+        properties: {
+          entityType: entityName,
+          ...event.body,
+          state: state // Include current state
+        },
+        timestamp: new Date(event.eventCreatedAt)
+      });
+    }
+  }
+};
+```
+
+## Best Practices
+
+### Do's
+
+```typescript
+// Do: Send events asynchronously
+const goodPlugin: Plugin = {
+  async onCommitted({ events }) {
+    await Promise.all(
+      events.map(e => analytics.track(e))
+    );
+  }
+};
+
+// Do: Include relevant context
+const contextualPlugin: Plugin = {
+  async onCommitted({ events, state, entityId }) {
+    for (const event of events) {
+      await analytics.track({
+        event: event.eventName,
+        userId: entityId,
+        properties: {
+          ...event.body,
+          // Include context for better analysis
+          state: state,
+          timestamp: event.eventCreatedAt
+        }
+      });
+    }
+  }
+};
+
+// Do: Make it idempotent with event IDs
+const idempotentPlugin: Plugin = {
+  async onCommitted({ events }) {
+    for (const event of events) {
+      await analyticsDB.upsert({
+        eventId: event.eventId,
+        data: event
+      });
+    }
+  }
+};
+```
+
+### Don'ts
+
+```typescript
+// Don't: Block on slow analytics operations
+// Instead, queue for background processing
+const slowPlugin: Plugin = {
+  async onCommitted({ events }) {
+    // BAD: This blocks commit
+    // await processLargeAnalyticsReport(events);
+
+    // GOOD: Queue for background job
+    await jobQueue.enqueue('analyze-events', events);
+  }
+};
+
+// Don't: Lose context by only tracking event names
+const poorContextPlugin: Plugin = {
+  async onCommitted({ events }) {
+    // BAD: Losing entity context
+    // for (const event of events) {
+    //   analytics.track(event.eventName);
+    // }
+
+    // GOOD: Include context
+    for (const event of events) {
+      analytics.track(event.eventName, event.body);
+    }
+  }
+};
+
+// Don't: Track every event the same way
+const genericPlugin: Plugin = {
+  async onCommitted({ events, state }) {
+    // BAD: Same tracking for all events
+    // events.forEach(e => analytics.track(e));
+
+    // GOOD: Event-specific tracking
+    for (const event of events) {
+      if (event.eventName.includes('payment')) {
+        analytics.trackPayment(event.body);
+      } else if (event.eventName.includes('status')) {
+        analytics.trackStatusChange(state);
+      }
+    }
+  }
+};
+```
+
+## Performance Considerations
+
+### Batch Processing
+
+```typescript
+// For high-volume events, batch sends
+const batchPlugin: Plugin = {
+  async onCommitted({ events }) {
+    const batch = events.map(e => ({
+      event: e.eventName,
+      data: e.body
+    }));
+
+    // Send in one HTTP request
+    await analytics.batchTrack(batch);
+  }
+};
+```
+
+### Error Recovery
+
+```typescript
+const robustAnalyticsPlugin: Plugin = {
+  async onCommitted({ events }) {
+    for (const event of events) {
+      try {
+        await analytics.track(event);
+      } catch (error) {
+        // Queue for retry
+        await retryQueue.push({
+          event,
+          error,
+          retries: 0
+        });
+
+        // Log but don't throw
+        logger.warn('Analytics tracking failed', {
+          eventName: event.eventName,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+  }
+};
+```
+
+## Testing
+
+Test analytics plugins with unit tests:
+
+```typescript
+import { describe, it, expect, vi } from 'vitest';
+
+describe('Analytics Plugin', () => {
+  it('tracks all committed events', async () => {
+    const trackMock = vi.fn();
+    const mockAnalytics = { track: trackMock };
+
+    const events = [
+      {
+        eventName: 'user:created',
+        body: { email: 'test@example.com' },
+        eventCreatedAt: '2024-01-01T00:00:00Z'
+      }
+    ];
+
+    await analyticsPlugin.onCommitted({
+      entityName: 'user',
+      entityId: 'user-123',
+      events,
+      state: { email: 'test@example.com' }
+    });
+
+    expect(trackMock).toHaveBeenCalledWith({
+      event: 'user:created',
+      userId: 'user-123',
+      properties: { email: 'test@example.com' },
+      timestamp: '2024-01-01T00:00:00Z'
+    });
+  });
+});
+```
+
+## Related Documentation
+
+- [Plugins Overview](/docs/plugins)
+- [Event Broadcasting Plugin](/docs/plugins/event-broadcasting)
+- [Best Practices](/docs/best-practices)

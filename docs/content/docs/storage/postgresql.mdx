@@ -1,0 +1,734 @@
+---
+title: PostgreSQL Adapter
+description: Production-grade PostgreSQL adapter for Ventyd with ACID compliance, strong consistency, and powerful transactions.
+---
+
+# PostgreSQL Adapter
+
+PostgreSQL is an excellent choice for event sourcing in production environments, offering strong ACID guarantees, powerful transactions, and excellent performance.
+
+## Installation
+
+```bash
+npm install pg
+# or
+yarn add pg
+
+# TypeScript support
+npm install --save-dev @types/pg
+```
+
+## Basic Implementation
+
+```typescript
+import type { Adapter } from 'ventyd';
+import { Pool, QueryResult } from 'pg';
+
+const createPostgreSQLAdapter = (connectionString: string): Adapter => {
+  const pool = new Pool({ connectionString });
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      const result = await pool.query(
+        `SELECT * FROM events
+         WHERE entity_name = $1 AND entity_id = $2
+         ORDER BY event_created_at ASC`,
+        [entityName, entityId]
+      );
+
+      return result.rows;
+    },
+
+    async commitEvents({ events }) {
+      if (events.length === 0) {
+        return;
+      }
+
+      const values = events
+        .map((event, i) => {
+          const offset = i * 6;
+          return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6})`;
+        })
+        .join(', ');
+
+      const params = events.flatMap(event => [
+        event.eventId,
+        event.eventName,
+        event.eventCreatedAt,
+        event.entityName,
+        event.entityId,
+        JSON.stringify(event.body)
+      ]);
+
+      await pool.query(
+        `INSERT INTO events (event_id, event_name, event_created_at, entity_name, entity_id, body)
+         VALUES ${values}`,
+        params
+      );
+    }
+  };
+};
+
+// Usage
+const adapter = createPostgreSQLAdapter(
+  process.env.DATABASE_URL || 'postgresql://localhost:5432/ventyd'
+);
+
+const userRepository = createRepository(User, { adapter });
+```
+
+## Production-Ready Implementation
+
+A robust adapter with connection pooling, transactions, and error handling:
+
+```typescript
+import type { Adapter, Event } from 'ventyd';
+import { Pool, PoolClient, QueryResult } from 'pg';
+
+interface PostgreSQLAdapterOptions {
+  max?: number;
+  min?: number;
+  idleTimeoutMillis?: number;
+  connectionTimeoutMillis?: number;
+}
+
+const createPostgreSQLAdapter = (
+  connectionString: string,
+  options: PostgreSQLAdapterOptions = {}
+): Adapter => {
+  const {
+    max = 50,
+    min = 10,
+    idleTimeoutMillis = 30000,
+    connectionTimeoutMillis = 2000
+  } = options;
+
+  const pool = new Pool({
+    connectionString,
+    max,
+    min,
+    idleTimeoutMillis,
+    connectionTimeoutMillis,
+    application_name: 'ventyd-app'
+  });
+
+  // Error handling
+  pool.on('error', (error) => {
+    console.error('[PostgreSQL] Unexpected error in connection pool', error);
+  });
+
+  // Initialize schema
+  const initializeSchema = async () => {
+    const client = await pool.connect();
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS events (
+          id SERIAL PRIMARY KEY,
+          event_id VARCHAR(255) NOT NULL UNIQUE,
+          event_name VARCHAR(255) NOT NULL,
+          event_created_at TIMESTAMP NOT NULL,
+          entity_name VARCHAR(255) NOT NULL,
+          entity_id VARCHAR(255) NOT NULL,
+          body JSONB NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT events_entity_check
+            CHECK (entity_name IS NOT NULL AND entity_id IS NOT NULL)
+        );
+
+        -- Create indexes
+        CREATE INDEX IF NOT EXISTS idx_events_entity
+          ON events(entity_name, entity_id);
+
+        CREATE INDEX IF NOT EXISTS idx_events_created_at
+          ON events(event_created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_events_entity_time
+          ON events(entity_name, entity_id, event_created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_events_id
+          ON events(event_id);
+      `);
+
+      console.log('[PostgreSQL] Schema initialized');
+    } catch (error) {
+      console.error('[PostgreSQL] Schema initialization failed', error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+
+  let initialized = false;
+
+  const initialize = async () => {
+    if (initialized) return;
+
+    try {
+      await initializeSchema();
+      initialized = true;
+    } catch (error) {
+      console.error('[PostgreSQL] Initialization failed', error);
+      throw error;
+    }
+  };
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      try {
+        await initialize();
+
+        const result = await pool.query(
+          `SELECT
+             event_id,
+             event_name,
+             event_created_at,
+             entity_name,
+             entity_id,
+             body
+           FROM events
+           WHERE entity_name = $1 AND entity_id = $2
+           ORDER BY event_created_at ASC`,
+          [entityName, entityId]
+        );
+
+        // Transform JSONB body back to object
+        return result.rows.map(row => ({
+          ...row,
+          body: typeof row.body === 'string'
+            ? JSON.parse(row.body)
+            : row.body
+        }));
+      } catch (error) {
+        throw new Error(
+          `Failed to retrieve events for ${entityName}:${entityId}`,
+          { cause: error }
+        );
+      }
+    },
+
+    async commitEvents({ events }) {
+      if (events.length === 0) {
+        return;
+      }
+
+      const client = await pool.connect();
+
+      try {
+        await client.query('BEGIN');
+
+        try {
+          // Insert events in batches
+          const batchSize = 100;
+
+          for (let i = 0; i < events.length; i += batchSize) {
+            const batch = events.slice(i, i + batchSize);
+
+            const values = batch
+              .map((_, idx) => {
+                const offset = idx * 6;
+                return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}::JSONB)`;
+              })
+              .join(', ');
+
+            const params = batch.flatMap(event => [
+              event.eventId,
+              event.eventName,
+              event.eventCreatedAt,
+              event.entityName,
+              event.entityId,
+              JSON.stringify(event.body)
+            ]);
+
+            await client.query(
+              `INSERT INTO events (event_id, event_name, event_created_at, entity_name, entity_id, body)
+               VALUES ${values}
+               ON CONFLICT (event_id) DO NOTHING`,
+              params
+            );
+          }
+
+          await client.query('COMMIT');
+        } catch (error) {
+          await client.query('ROLLBACK');
+          throw error;
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('duplicate')) {
+          console.warn('[PostgreSQL] Duplicate event detected (retry)');
+          return;
+        }
+
+        throw new Error('Failed to commit events', { cause: error });
+      } finally {
+        client.release();
+      }
+    }
+  };
+};
+```
+
+## Schema Setup
+
+Create the PostgreSQL schema for storing events:
+
+```sql
+-- Create events table
+CREATE TABLE events (
+  id SERIAL PRIMARY KEY,
+  event_id VARCHAR(255) NOT NULL UNIQUE,
+  event_name VARCHAR(255) NOT NULL,
+  event_created_at TIMESTAMP NOT NULL,
+  entity_name VARCHAR(255) NOT NULL,
+  entity_id VARCHAR(255) NOT NULL,
+  body JSONB NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  -- Constraints
+  CONSTRAINT events_check CHECK (
+    event_id IS NOT NULL AND
+    event_name IS NOT NULL AND
+    entity_name IS NOT NULL AND
+    entity_id IS NOT NULL
+  )
+);
+
+-- Create indexes for optimal performance
+CREATE INDEX idx_events_entity
+  ON events(entity_name, entity_id);
+
+CREATE INDEX idx_events_time
+  ON events(event_created_at);
+
+CREATE INDEX idx_events_entity_time
+  ON events(entity_name, entity_id, event_created_at)
+  WHERE entity_name IS NOT NULL;
+
+-- Unique constraint on event_id for deduplication
+CREATE UNIQUE INDEX idx_events_id
+  ON events(event_id);
+
+-- Optional: Full-text search index on event names
+CREATE INDEX idx_events_name
+  ON events(event_name);
+
+-- Optional: Partial index for recent events
+CREATE INDEX idx_events_recent
+  ON events(entity_name, entity_id, event_created_at)
+  WHERE event_created_at > CURRENT_TIMESTAMP - INTERVAL '30 days';
+```
+
+## Index Creation and Optimization
+
+Strategic indexing for performance:
+
+```typescript
+const setupPostgreSQLIndexes = async (client: PoolClient) => {
+  try {
+    // 1. Primary lookup index (most critical)
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_events_entity
+      ON events(entity_name, entity_id);
+    `);
+
+    // 2. Time-based sorting
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_events_time
+      ON events(event_created_at);
+    `);
+
+    // 3. Composite index for filtered time-based queries
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_events_entity_time
+      ON events(entity_name, entity_id, event_created_at);
+    `);
+
+    // 4. Event ID for deduplication
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_events_id
+      ON events(event_id);
+    `);
+
+    // 5. Event name for filtering
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_events_name
+      ON events(event_name)
+      WHERE event_name IS NOT NULL;
+    `);
+
+    console.log('[PostgreSQL] Indexes created successfully');
+  } catch (error) {
+    console.error('[PostgreSQL] Index creation failed', error);
+    throw error;
+  }
+};
+```
+
+## Transaction Support
+
+PostgreSQL provides robust ACID transactions:
+
+```typescript
+async commitEvents({ events }) {
+  const client = await pool.connect();
+
+  try {
+    // Start transaction with SERIALIZABLE isolation
+    await client.query(
+      'BEGIN ISOLATION LEVEL SERIALIZABLE'
+    );
+
+    try {
+      // Insert events
+      for (const event of events) {
+        await client.query(
+          `INSERT INTO events
+           (event_id, event_name, event_created_at, entity_name, entity_id, body)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (event_id) DO NOTHING`,
+          [
+            event.eventId,
+            event.eventName,
+            event.eventCreatedAt,
+            event.entityName,
+            event.entityId,
+            JSON.stringify(event.body)
+          ]
+        );
+      }
+
+      // Commit atomically
+      await client.query('COMMIT');
+    } catch (error) {
+      // Rollback on any error
+      await client.query('ROLLBACK');
+      throw error;
+    }
+  } finally {
+    client.release();
+  }
+}
+```
+
+## Error Handling
+
+Comprehensive error handling for PostgreSQL:
+
+```typescript
+const handlePostgreSQLError = (error: Error, context: string) => {
+  const pgError = error as any;
+
+  if (pgError.code) {
+    switch (pgError.code) {
+      case '23505': // Unique violation
+        console.warn(`[PostgreSQL] ${context}: Duplicate event (retry)`);
+        return 'DUPLICATE';
+
+      case '23503': // Foreign key violation
+        console.error(`[PostgreSQL] ${context}: Foreign key constraint`);
+        return 'CONSTRAINT_VIOLATION';
+
+      case '40001': // Serialization failure
+        console.warn(`[PostgreSQL] ${context}: Transaction conflict`);
+        return 'TRANSACTION_CONFLICT';
+
+      case '08006': // Connection failure
+        console.error(`[PostgreSQL] ${context}: Connection lost`);
+        return 'CONNECTION_FAILED';
+
+      default:
+        console.error(`[PostgreSQL] ${context}: Error ${pgError.code}`, error);
+        return 'UNKNOWN_ERROR';
+    }
+  }
+
+  return 'UNKNOWN_ERROR';
+};
+```
+
+## Usage Examples
+
+### Basic Setup
+
+```typescript
+import { createRepository } from 'ventyd';
+
+const adapter = createPostgreSQLAdapter(
+  'postgresql://user:password@localhost:5432/ventyd'
+);
+
+const userRepository = createRepository(User, {
+  adapter
+});
+```
+
+### With Environment Configuration
+
+```typescript
+// config.ts
+import type { Adapter } from 'ventyd';
+
+let adapter: Adapter;
+
+if (process.env.NODE_ENV === 'development') {
+  adapter = createPostgreSQLAdapter(
+    'postgresql://localhost:5432/app_dev',
+    { max: 10 }
+  );
+} else {
+  adapter = createPostgreSQLAdapter(
+    process.env.DATABASE_URL || '',
+    {
+      max: 100,
+      min: 20,
+      idleTimeoutMillis: 30000
+    }
+  );
+}
+
+export { adapter };
+```
+
+### With Connection Pooling
+
+```typescript
+const adapter = createPostgreSQLAdapter(
+  process.env.DATABASE_URL!,
+  {
+    max: 100,        // Maximum connections
+    min: 20,         // Minimum connections
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000
+  }
+);
+```
+
+## Performance Tips
+
+### 1. Batch Inserts
+
+```typescript
+// ✅ Good - Batch insert
+const values = events
+  .map((_, i) => `($${i * 6 + 1}, ..., $${i * 6 + 6})`)
+  .join(', ');
+
+await pool.query(
+  `INSERT INTO events (...) VALUES ${values}`,
+  params
+);
+
+// ❌ Avoid - Individual inserts
+for (const event of events) {
+  await pool.query('INSERT INTO events ...', [...]);
+}
+```
+
+### 2. Use JSONB for Event Bodies
+
+```sql
+-- Store event body as JSONB for indexing and queries
+CREATE TABLE events (
+  ...
+  body JSONB NOT NULL
+);
+
+-- Query inside JSONB
+SELECT * FROM events
+WHERE body->>'userId' = 'user-123';
+```
+
+### 3. Connection Pooling Configuration
+
+```typescript
+const pool = new Pool({
+  // Connection pooling
+  max: 50,              // Max connections
+  min: 10,              // Min connections
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+
+  // Statement caching
+  statement_cache_size: 100,
+  max_cached_statement_lifetime: 3600,
+  max_cacheable_statement_size: 1048576
+});
+```
+
+### 4. Index Analysis
+
+```typescript
+// Check index usage
+SELECT
+  schemaname,
+  tablename,
+  indexname,
+  idx_scan,
+  idx_tup_read,
+  idx_tup_fetch
+FROM pg_stat_user_indexes
+WHERE tablename = 'events'
+ORDER BY idx_scan DESC;
+
+// Analyze table for query planning
+ANALYZE events;
+```
+
+## Monitoring
+
+Monitor PostgreSQL adapter health:
+
+```typescript
+interface PostgreSQLMetrics {
+  eventCount: number;
+  tableSize: string;
+  indexSize: string;
+  cacheHitRatio: number;
+  connectionCount: number;
+}
+
+const getPostgreSQLMetrics = async (
+  pool: Pool
+): Promise<PostgreSQLMetrics> => {
+  const client = await pool.connect();
+
+  try {
+    const countResult = await client.query(
+      'SELECT COUNT(*) as count FROM events'
+    );
+
+    const sizeResult = await client.query(`
+      SELECT
+        pg_size_pretty(pg_total_relation_size('events')) as size
+    `);
+
+    const cacheResult = await client.query(`
+      SELECT
+        sum(heap_blks_hit) / (sum(heap_blks_hit) + sum(heap_blks_read)) as ratio
+      FROM pg_statio_user_tables
+      WHERE relname = 'events'
+    `);
+
+    return {
+      eventCount: parseInt(countResult.rows[0].count),
+      tableSize: sizeResult.rows[0].size,
+      indexSize: 'N/A',
+      cacheHitRatio: parseFloat(cacheResult.rows[0].ratio || 0),
+      connectionCount: pool.totalCount
+    };
+  } finally {
+    client.release();
+  }
+};
+```
+
+## Best Practices
+
+### 1. Constraint Validation
+
+```sql
+-- Add constraints to ensure data integrity
+ALTER TABLE events ADD CONSTRAINT events_check
+  CHECK (
+    event_id IS NOT NULL AND
+    event_name IS NOT NULL AND
+    entity_name IS NOT NULL AND
+    entity_id IS NOT NULL AND
+    char_length(event_id) > 0 AND
+    char_length(event_name) > 0
+  );
+```
+
+### 2. Automated Backups
+
+```bash
+# Daily backup script
+#!/bin/bash
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+pg_dump -U user -h localhost ventyd > \
+  backups/ventyd_$TIMESTAMP.sql.gz
+```
+
+### 3. Query Optimization
+
+```typescript
+// Use EXPLAIN to analyze queries
+const analyzeQuery = async (client: PoolClient) => {
+  const result = await client.query(`
+    EXPLAIN ANALYZE
+    SELECT * FROM events
+    WHERE entity_name = 'user' AND entity_id = 'user-123'
+    ORDER BY event_created_at ASC
+  `);
+
+  console.log(result.rows);
+};
+```
+
+### 4. Connection Pool Monitoring
+
+```typescript
+pool.on('query', (query) => {
+  if (query.duration > 1000) {
+    console.warn(`[PostgreSQL] Slow query (${query.duration}ms)`, query.text);
+  }
+});
+
+// Log pool status
+setInterval(() => {
+  console.log(`[PostgreSQL] Pool: ${pool.idleCount}/${pool.totalCount} connections`);
+}, 60000);
+```
+
+## Troubleshooting
+
+### Connection Errors
+
+<Callout type="warning">
+Common connection issues:
+1. Check PostgreSQL is running: `psql -U user -h localhost`
+2. Verify credentials in connection string
+3. Check firewall: `nc -zv localhost 5432`
+4. Check pool limits: `SELECT * FROM pg_stat_activity;`
+</Callout>
+
+### Transaction Conflicts
+
+```sql
+-- Check for active transactions
+SELECT * FROM pg_stat_activity WHERE state = 'active';
+
+-- Kill long-running queries
+SELECT pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE duration > INTERVAL '1 hour';
+```
+
+### Slow Queries
+
+```sql
+-- Enable slow query log
+ALTER SYSTEM SET log_min_duration_statement = 1000;
+SELECT pg_reload_conf();
+
+-- View slow queries
+SELECT query, mean_exec_time FROM pg_stat_statements
+WHERE query LIKE '%events%'
+ORDER BY mean_exec_time DESC;
+```
+
+## Comparison with Other Adapters
+
+| Feature | In-Memory | MongoDB | PostgreSQL |
+|---------|-----------|---------|------------|
+| Production Ready | ❌ | ✅ | ✅ |
+| ACID Compliance | ❌ | Partial | ✅ |
+| Transactions | ❌ | ✅ | ✅ |
+| Horizontal Scale | ❌ | ✅ | ❌ |
+| Setup Complexity | Simple | Medium | Medium |
+| Query Power | Limited | Medium | Excellent |
+
+## Next Steps
+
+- **[MongoDB Adapter](/docs/storage/mongodb)** - For document-based storage
+- **[Custom Adapters](/docs/storage/custom-adapters)** - For other databases
+- **[Storage Overview](/docs/storage)** - Back to storage guide

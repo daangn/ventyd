@@ -1,70 +1,345 @@
 ---
 title: Introduction
-description: A TypeScript-first event sourcing library
+description: A TypeScript-first event sourcing library built for modern web applications
 ---
 
-# Ventyd
+# Welcome to Ventyd
 
-A TypeScript-first event sourcing library
+**Ventyd** is a TypeScript-first event sourcing library that makes it easy to build applications where every state change is captured as an immutable event.
 
-## Features
+## Why Ventyd?
 
-- **Type-Safe Event Sourcing**: Full TypeScript support with comprehensive type inference
-- **Standard Schema Support**: Built on [Standard Schema](https://standardschema.dev) specification for maximum flexibility
-- **Multiple Validation Libraries**: Official integrations for Valibot, Zod, ArkType, and TypeBox - use your favorite validation library
-- **Flexible Storage Adapters**: Connect to any database through a simple interface
-- **Event-Driven Architecture**: Capture all state changes as immutable events
-- **Time Travel**: Reconstruct entity state at any point in history
-- **Lightweight**: Minimal dependencies, focused on core functionality
-- **Plugin System**: Extensible architecture for side effects (analytics, logging, etc.)
-
-## Installation
-
-```bash
-$ yarn add ventyd
-```
-
-### Installing Validation Libraries
-
-Ventyd is built on the [Standard Schema](https://standardschema.dev) specification. Choose your preferred validation library:
-
-```bash
-# Valibot (recommended)
-$ yarn add valibot
-
-# Zod
-$ yarn add zod
-
-# ArkType
-$ yarn add arktype
-
-# TypeBox
-# Note: @sinclair/typemap provides Standard Schema support
-$ yarn add @sinclair/typebox @sinclair/typemap
-
-# Or use any Standard Schema-compliant library directly
-$ yarn add @standard-schema/spec
-```
-
-## Quick Links
+Traditional applications only store the current state of your data. Ventyd takes a different approach - it stores **all the events** that led to the current state, giving you superpowers like complete audit trails, time travel debugging, and event replay.
 
 <Cards>
-  <Card title="Quick Start" href="/docs/quick-start" />
-  <Card title="Core Concepts" href="/docs/core-concepts" />
-  <Card title="Validation Libraries" href="/docs/validation-libraries" />
-  <Card title="Storage Adapters" href="/docs/storage-adapters" />
-  <Card title="Plugins" href="/docs/plugins" />
-  <Card title="Best Practices" href="/docs/best-practices" />
+  <Card
+    title="Type-Safe"
+    description="Full TypeScript support with comprehensive type inference. Catch errors at compile time."
+    href="/docs/getting-started"
+  />
+  <Card
+    title="Flexible Validation"
+    description="Use Valibot, Zod, ArkType, TypeBox, or any Standard Schema library."
+    href="/docs/validation"
+  />
+  <Card
+    title="Database Agnostic"
+    description="Simple adapter interface works with MongoDB, PostgreSQL, Redis, or custom solutions."
+    href="/docs/storage"
+  />
+  <Card
+    title="Extensible"
+    description="Plugin system for analytics, logging, notifications, and custom side effects."
+    href="/docs/plugins"
+  />
 </Cards>
 
-## License
+## Quick Example
 
-MIT
+Here's a complete example of an event-sourced User entity:
 
-## Contributing
+```typescript
+import { defineSchema, defineReducer, Entity, mutation, createRepository } from 'ventyd';
+import { valibot, v } from 'ventyd/valibot';
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+// 1. Define your schema
+const userSchema = defineSchema("user", {
+  schema: valibot({
+    event: {
+      created: v.object({
+        email: v.pipe(v.string(), v.email()),
+        name: v.string(),
+      }),
+      name_updated: v.object({
+        name: v.string(),
+      }),
+    },
+    state: v.object({
+      email: v.string(),
+      name: v.string(),
+    }),
+  }),
+  initialEventName: "user:created",
+});
 
-## Support
+// 2. Create a reducer
+const userReducer = defineReducer(userSchema, (prevState, event) => {
+  switch (event.eventName) {
+    case "user:created":
+      return {
+        email: event.body.email,
+        name: event.body.name,
+      };
+    case "user:name_updated":
+      return {
+        ...prevState,
+        name: event.body.name,
+      };
+    default:
+      return prevState;
+  }
+});
 
-For questions and support, please open an issue on [GitHub](https://github.com/daangn/ventyd).
+// 3. Build your entity
+class User extends Entity(userSchema, userReducer) {
+  get email() {
+    return this.state.email;
+  }
+
+  get name() {
+    return this.state.name;
+  }
+
+  updateName = mutation(this, (dispatch, name: string) => {
+    if (name.length === 0) {
+      throw new Error("Name cannot be empty");
+    }
+    dispatch("user:name_updated", { name });
+  });
+}
+
+// 4. Create a repository
+const userRepository = createRepository(User, {
+  adapter: createInMemoryAdapter()
+});
+
+// 5. Use it!
+const user = User.create({
+  body: { email: "alice@example.com", name: "Alice" }
+});
+
+user.updateName("Alice Smith");
+
+await userRepository.commit(user);
+```
+
+## Key Features
+
+### Complete Audit Trail
+
+Every change is recorded as an immutable event:
+
+```typescript
+console.log(user.events);
+// [
+//   { eventName: 'user:created', body: { email: '...', name: 'Alice' } },
+//   { eventName: 'user:name_updated', body: { name: 'Alice Smith' } }
+// ]
+```
+
+### Time Travel
+
+Reconstruct state at any point in history:
+
+```typescript
+// Replay only the first event
+const pastState = events.slice(0, 1).reduce(reducer, undefined);
+console.log(pastState.name); // "Alice" (before the update)
+```
+
+### Event Replay
+
+Rebuild your entire database from events:
+
+```typescript
+// Migrate to a new schema by replaying all events
+const events = await getAllEvents();
+const newState = events.reduce(newReducer, undefined);
+```
+
+### Flexible Validation
+
+Choose your favorite validation library:
+
+
+  
+    ```typescript
+    import { valibot, v } from 'ventyd/valibot';
+
+    const schema = valibot({
+      event: {
+        created: v.object({
+          email: v.pipe(v.string(), v.email())
+        })
+      },
+      state: v.object({
+        email: v.string()
+      })
+    });
+    ```
+  
+  
+    ```typescript
+    import { zod, z } from 'ventyd/zod';
+
+    const schema = zod({
+      event: {
+        created: z.object({
+          email: z.string().email()
+        })
+      },
+      state: z.object({
+        email: z.string()
+      })
+    });
+    ```
+  
+  
+    ```typescript
+    import { typebox, Type } from 'ventyd/typebox';
+
+    const schema = typebox({
+      event: {
+        created: Type.Object({
+          email: Type.String({ format: 'email' })
+        })
+      },
+      state: Type.Object({
+        email: Type.String()
+      })
+    });
+    ```
+  
+  
+    ```typescript
+    import { arktype, type } from 'ventyd/arktype';
+
+    const schema = arktype({
+      event: {
+        created: type({
+          email: "string.email"
+        })
+      },
+      state: type({
+        email: "string.email"
+      })
+    });
+    ```
+  
+
+
+## Get Started
+
+
+  
+    ### Install Ventyd
+
+    ```bash
+    npm install ventyd valibot
+    ```
+
+    Choose your preferred validation library (Valibot, Zod, ArkType, or TypeBox).
+  
+
+  
+    ### Follow the Quick Start
+
+    Build your first event-sourced entity in 5 minutes.
+
+    [Quick Start Guide →](/docs/getting-started/quick-start)
+  
+
+  
+    ### Learn Core Concepts
+
+    Understand event sourcing, entities, reducers, and mutations.
+
+    [Core Concepts →](/docs/core-concepts)
+  
+
+
+## Documentation Sections
+
+<Cards>
+  <Card
+    title="Getting Started"
+    description="Installation, quick start, and your first entity"
+    href="/docs/getting-started"
+  />
+  <Card
+    title="Core Concepts"
+    description="Event sourcing, entities, events, reducers, mutations, and CQRS"
+    href="/docs/core-concepts"
+  />
+  <Card
+    title="Validation"
+    description="Complete guides for Valibot, Zod, TypeBox, ArkType, and Standard Schema"
+    href="/docs/validation"
+  />
+  <Card
+    title="Storage"
+    description="In-memory, MongoDB, PostgreSQL adapters and custom implementations"
+    href="/docs/storage"
+  />
+  <Card
+    title="Plugins"
+    description="Analytics, audit logging, event broadcasting, search indexing, and more"
+    href="/docs/plugins"
+  />
+  <Card
+    title="Guides"
+    description="Event naming, testing, performance, error handling, and best practices"
+    href="/docs/guides"
+  />
+</Cards>
+
+## Community & Support
+
+<Cards>
+  <Card
+    title="GitHub"
+    description="Source code, issues, and contributions"
+    href="https://github.com/daangn/ventyd"
+  />
+  <Card
+    title="Issues"
+    description="Report bugs or request features"
+    href="https://github.com/daangn/ventyd/issues"
+  />
+  <Card
+    title="License"
+    description="MIT - Free for commercial and personal use"
+  />
+</Cards>
+
+## What's Different About Ventyd?
+
+### Standard Schema First
+
+Ventyd is built on the [Standard Schema](https://standardschema.dev) specification, which means you're not locked into any single validation library. Switch between Valibot, Zod, ArkType, or TypeBox without changing your code structure.
+
+### Type Safety Everywhere
+
+Full TypeScript support with comprehensive type inference means you catch errors at compile time, not runtime.
+
+```typescript
+// ✅ TypeScript knows exactly what events are valid
+user.updateName("Alice"); // Works!
+
+// ❌ TypeScript catches invalid events at compile time
+user.dispatch("user:invalid_event", {}); // Type error!
+```
+
+### CQRS by Default
+
+Ventyd separates read and write models automatically. Entities loaded from state snapshots are read-only, preventing accidental mutations without event history.
+
+```typescript
+// Write model - can mutate
+const user = User.create({ body: { email: "..." } });
+user.updateName("Alice"); // ✅ Works
+
+// Read model - read-only
+const loaded = User.load({ entityId: "123", state: { email: "..." } });
+loaded.updateName("Bob"); // ❌ Type error & runtime error
+```
+
+### Lightweight & Focused
+
+Ventyd has minimal dependencies and focuses on core event sourcing functionality. Extend it with plugins for side effects like analytics, logging, and notifications.
+
+<Callout type="info">
+**Ready to Get Started?**
+
+Jump into the [Quick Start guide](/docs/getting-started/quick-start) and build your first event-sourced entity in 5 minutes!
+</Callout>

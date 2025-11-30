@@ -1,0 +1,618 @@
+---
+title: Standard Schema Provider
+description: Using any Standard Schema-compliant library directly with Ventyd
+---
+
+# Standard Schema Provider
+
+For validation libraries without an official Ventyd integration, you can use the `standard()` provider directly. This works with any library that implements the [Standard Schema](https://standardschema.dev) specification.
+
+## When to Use Standard Schema Provider
+
+Use the `standard()` provider when:
+
+- Your preferred library doesn't have an official Ventyd integration
+- You want to use a custom or proprietary validation library
+- You need fine-grained control over event metadata
+- You're integrating a library that implements Standard Schema natively
+
+For most users, we recommend using an official integration like [Valibot](/docs/validation/valibot), [Zod](/docs/validation/zod), [TypeBox](/docs/validation/typebox), or [ArkType](/docs/validation/arktype) instead, as they provide automatic event namespacing and better ergonomics.
+
+## Installation
+
+
+  
+    ```bash
+    pnpm add ventyd @standard-schema/spec
+    ```
+  
+  
+    ```bash
+    yarn add ventyd @standard-schema/spec
+    ```
+  
+  
+    ```bash
+    npm install ventyd @standard-schema/spec
+    ```
+  
+
+
+Plus your chosen validation library:
+
+
+  
+    ```bash
+    pnpm add valibot
+    ```
+  
+  
+    ```bash
+    pnpm add zod
+    ```
+  
+  
+    ```bash
+    pnpm add your-validation-library
+    ```
+  
+
+
+## Basic Usage
+
+With the `standard()` provider, you must manually define the complete event schema including metadata fields:
+
+```typescript
+import { defineSchema } from 'ventyd';
+import { standard } from 'ventyd/standard';
+import * as v from 'valibot'; // or any Standard Schema library
+
+const userSchema = defineSchema("user", {
+  schema: standard({
+    event: {
+      "user:created": v.object({
+        eventId: v.string(),
+        eventName: v.literal("user:created"),
+        eventCreatedAt: v.string(),
+        entityName: v.string(),
+        entityId: v.string(),
+        body: v.object({
+          email: v.pipe(v.string(), v.email()),
+          name: v.string()
+        })
+      }),
+      "user:updated": v.object({
+        eventId: v.string(),
+        eventName: v.literal("user:updated"),
+        eventCreatedAt: v.string(),
+        entityName: v.string(),
+        entityId: v.string(),
+        body: v.object({
+          name: v.string()
+        })
+      })
+    },
+    state: v.object({
+      email: v.string(),
+      name: v.string()
+    })
+  }),
+  initialEventName: "user:created"
+});
+```
+
+## Required Event Metadata Fields
+
+When using `standard()`, you must include these fields in every event schema:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `eventId` | string | Unique identifier for the event |
+| `eventName` | string literal | The specific event name (e.g., "user:created") |
+| `eventCreatedAt` | string | ISO timestamp when event was created |
+| `entityName` | string | The entity type (e.g., "user") |
+| `entityId` | string | The specific entity instance ID |
+| `body` | object | The actual event payload |
+
+These fields are automatically added by official integrations, but `standard()` requires you to define them explicitly.
+
+## Complete Example
+
+Here's a complete example using Valibot with `standard()`:
+
+```typescript
+import { defineSchema, defineReducer, Entity, mutation } from 'ventyd';
+import { standard } from 'ventyd/standard';
+import * as v from 'valibot';
+
+// Define the schema with explicit metadata
+const userSchema = defineSchema("user", {
+  schema: standard({
+    event: {
+      "user:created": v.object({
+        eventId: v.string(),
+        eventName: v.literal("user:created"),
+        eventCreatedAt: v.string(),
+        entityName: v.string(),
+        entityId: v.string(),
+        body: v.object({
+          email: v.pipe(v.string(), v.email()),
+          name: v.string(),
+          age: v.number()
+        })
+      }),
+      "user:updated": v.object({
+        eventId: v.string(),
+        eventName: v.literal("user:updated"),
+        eventCreatedAt: v.string(),
+        entityName: v.string(),
+        entityId: v.string(),
+        body: v.object({
+          name: v.optional(v.string()),
+          age: v.optional(v.number())
+        })
+      }),
+      "user:deleted": v.object({
+        eventId: v.string(),
+        eventName: v.literal("user:deleted"),
+        eventCreatedAt: v.string(),
+        entityName: v.string(),
+        entityId: v.string(),
+        body: v.object({
+          reason: v.optional(v.string())
+        })
+      })
+    },
+    state: v.object({
+      email: v.string(),
+      name: v.string(),
+      age: v.number(),
+      deletedAt: v.optional(v.nullable(v.string()))
+    })
+  }),
+  initialEventName: "user:created"
+});
+
+// Define the reducer
+const userReducer = defineReducer(userSchema, (prevState, event) => {
+  switch (event.eventName) {
+    case "user:created":
+      return {
+        email: event.body.email,
+        name: event.body.name,
+        age: event.body.age,
+        deletedAt: null
+      };
+
+    case "user:updated":
+      return {
+        ...prevState,
+        ...(event.body.name && { name: event.body.name }),
+        ...(event.body.age !== undefined && { age: event.body.age })
+      };
+
+    case "user:deleted":
+      return {
+        ...prevState,
+        deletedAt: event.eventCreatedAt
+      };
+
+    default:
+      return prevState;
+  }
+});
+
+// Create the entity class
+class User extends Entity(userSchema, userReducer) {
+  get isDeleted() {
+    return this.state.deletedAt !== null;
+  }
+
+  updateProfile = mutation(this, (dispatch, updates: { name?: string; age?: number }) => {
+    if (this.isDeleted) {
+      throw new Error("Cannot update deleted user");
+    }
+    dispatch("user:updated", updates);
+  });
+
+  delete = mutation(this, (dispatch, reason?: string) => {
+    if (this.isDeleted) {
+      throw new Error("User is already deleted");
+    }
+    dispatch("user:deleted", { reason });
+  });
+}
+
+// Use it
+const user = User.create({
+  body: {
+    email: "alice@example.com",
+    name: "Alice",
+    age: 30
+  }
+});
+
+user.updateProfile({ age: 31 });
+user.delete("Account closure");
+```
+
+## Custom Namespace Separator
+
+Unlike official integrations, `standard()` doesn't automatically handle namespace separators. You must manually include the full event name in the literal type:
+
+```typescript
+const userSchema = defineSchema("user", {
+  schema: standard({
+    event: {
+      "user/created": v.object({
+        eventId: v.string(),
+        eventName: v.literal("user/created"), // Must match key
+        eventCreatedAt: v.string(),
+        entityName: v.string(),
+        entityId: v.string(),
+        body: v.object({ email: v.string() })
+      }),
+      "user/updated": v.object({
+        eventId: v.string(),
+        eventName: v.literal("user/updated"), // Must match key
+        eventCreatedAt: v.string(),
+        entityName: v.string(),
+        entityId: v.string(),
+        body: v.object({ name: v.string() })
+      })
+    },
+    state: v.object({ email: v.string(), name: v.string() })
+  }),
+  initialEventName: "user/created"
+});
+```
+
+## Using with Zod
+
+Here's the same pattern with Zod:
+
+```typescript
+import { defineSchema } from 'ventyd';
+import { standard } from 'ventyd/standard';
+import { z } from 'zod';
+
+const userSchema = defineSchema("user", {
+  schema: standard({
+    event: {
+      "user:created": z.object({
+        eventId: z.string(),
+        eventName: z.literal("user:created"),
+        eventCreatedAt: z.string(),
+        entityName: z.string(),
+        entityId: z.string(),
+        body: z.object({
+          email: z.string().email(),
+          name: z.string()
+        })
+      }),
+      "user:updated": z.object({
+        eventId: z.string(),
+        eventName: z.literal("user:updated"),
+        eventCreatedAt: z.string(),
+        entityName: z.string(),
+        entityId: z.string(),
+        body: z.object({
+          name: z.string().optional()
+        })
+      })
+    },
+    state: z.object({
+      email: z.string(),
+      name: z.string()
+    })
+  }),
+  initialEventName: "user:created"
+});
+```
+
+## Comparison: Official Integration vs Standard Provider
+
+
+  
+    ```typescript
+    import { valibot, v } from 'ventyd/valibot';
+
+    const userSchema = defineSchema("user", {
+      schema: valibot({
+        event: {
+          created: v.object({
+            email: v.pipe(v.string(), v.email())
+          }),
+          updated: v.object({
+            name: v.string()
+          })
+        },
+        state: v.object({
+          email: v.string(),
+          name: v.string()
+        })
+      }),
+      initialEventName: "user:created"
+    });
+    ```
+
+    Benefits:
+    - Metadata fields added automatically
+    - Automatic event namespacing with `namespaceSeparator`
+    - Cleaner, more readable code
+    - Less boilerplate
+  
+
+  
+    ```typescript
+    import { standard } from 'ventyd/standard';
+    import * as v from 'valibot';
+
+    const userSchema = defineSchema("user", {
+      schema: standard({
+        event: {
+          "user:created": v.object({
+            eventId: v.string(),
+            eventName: v.literal("user:created"),
+            eventCreatedAt: v.string(),
+            entityName: v.string(),
+            entityId: v.string(),
+            body: v.object({
+              email: v.pipe(v.string(), v.email())
+            })
+          }),
+          "user:updated": v.object({
+            eventId: v.string(),
+            eventName: v.literal("user:updated"),
+            eventCreatedAt: v.string(),
+            entityName: v.string(),
+            entityId: v.string(),
+            body: v.object({
+              name: v.string()
+            })
+          })
+        },
+        state: v.object({
+          email: v.string(),
+          name: v.string()
+        })
+      }),
+      initialEventName: "user:created"
+    });
+    ```
+
+    Benefits:
+    - Works with any Standard Schema library
+    - Fine-grained control over metadata
+    - No magic - explicit field definitions
+  
+
+
+## Advanced Patterns
+
+### Reusable Event Templates
+
+Create helpers to reduce boilerplate:
+
+```typescript
+import * as v from 'valibot';
+
+// Helper to create consistent event schemas
+const createEvent = (
+  eventName: string,
+  bodySchema: any
+) => v.object({
+  eventId: v.string(),
+  eventName: v.literal(eventName),
+  eventCreatedAt: v.string(),
+  entityName: v.string(),
+  entityId: v.string(),
+  body: bodySchema
+});
+
+// Use in schema definition
+const userSchema = defineSchema("user", {
+  schema: standard({
+    event: {
+      "user:created": createEvent("user:created", v.object({
+        email: v.pipe(v.string(), v.email()),
+        name: v.string()
+      })),
+      "user:updated": createEvent("user:updated", v.object({
+        name: v.string()
+      }))
+    },
+    state: v.object({
+      email: v.string(),
+      name: v.string()
+    })
+  }),
+  initialEventName: "user:created"
+});
+```
+
+### Complex Event Unions
+
+Handle multiple event types with union types:
+
+```typescript
+const orderSchema = defineSchema("order", {
+  schema: standard({
+    event: {
+      "order:created": v.object({
+        eventId: v.string(),
+        eventName: v.literal("order:created"),
+        eventCreatedAt: v.string(),
+        entityName: v.string(),
+        entityId: v.string(),
+        body: v.object({
+          customerId: v.string(),
+          items: v.array(v.object({
+            productId: v.string(),
+            quantity: v.number()
+          }))
+        })
+      }),
+      "order:shipped": v.object({
+        eventId: v.string(),
+        eventName: v.literal("order:shipped"),
+        eventCreatedAt: v.string(),
+        entityName: v.string(),
+        entityId: v.string(),
+        body: v.object({
+          trackingNumber: v.string(),
+          carrier: v.enum(['fedex', 'ups', 'usps'])
+        })
+      }),
+      "order:cancelled": v.object({
+        eventId: v.string(),
+        eventName: v.literal("order:cancelled"),
+        eventCreatedAt: v.string(),
+        entityName: v.string(),
+        entityId: v.string(),
+        body: v.object({
+          reason: v.string()
+        })
+      })
+    },
+    state: v.object({
+      customerId: v.string(),
+      status: v.enum(['created', 'shipped', 'cancelled']),
+      items: v.array(v.object({
+        productId: v.string(),
+        quantity: v.number()
+      }))
+    })
+  }),
+  initialEventName: "order:created"
+});
+```
+
+## Pros and Cons
+
+### Pros
+
+- **Universal Compatibility**: Works with any Standard Schema library
+- **Full Control**: Explicit metadata field definitions
+- **No Magic**: Everything is explicit and visible
+- **Future-Proof**: Compatible with any library implementing Standard Schema
+
+### Cons
+
+- **More Boilerplate**: Must define metadata fields for each event
+- **Error-Prone**: Easy to mistype event names or metadata
+- **Less Convenient**: Official integrations are simpler
+- **DRY Violations**: Code repetition across event definitions
+
+## Recommendations
+
+### Use Official Integration If:
+
+- You're using Valibot, Zod, TypeBox, or ArkType
+- You want the least boilerplate
+- You need automatic namespace separators
+- You prefer simpler, more readable code
+
+### Use Standard Provider If:
+
+- Your library doesn't have an official integration
+- You need fine-grained control over metadata
+- You're using a custom validation library
+- You prefer explicit, visible definitions
+
+## Creating Your Own Integration
+
+If you want to create an official integration for your favorite library, check the [Ventyd Repository](https://github.com/daangn/ventyd) for guidelines and contribute!
+
+<Callout type="info">
+**Standard Schema Specification**
+
+Learn more about the Standard Schema specification at [standardschema.dev](https://standardschema.dev). It provides a unified interface for validation libraries, making it easy to swap implementations.
+</Callout>
+
+## Troubleshooting
+
+### Event Name Mismatch Errors
+
+Make sure the event key matches the `eventName` literal:
+
+```typescript
+// Wrong - mismatch
+event: {
+  "user:created": v.object({
+    eventName: v.literal("user:updated"), // Mismatch!
+    // ...
+  })
+}
+
+// Correct - matching
+event: {
+  "user:created": v.object({
+    eventName: v.literal("user:created"), // Matches key
+    // ...
+  })
+}
+```
+
+### Missing Metadata Fields
+
+Always include all required metadata fields:
+
+```typescript
+// Wrong - missing fields
+v.object({
+  body: v.object({ name: v.string() })
+})
+
+// Correct - all fields
+v.object({
+  eventId: v.string(),
+  eventName: v.literal("user:created"),
+  eventCreatedAt: v.string(),
+  entityName: v.string(),
+  entityId: v.string(),
+  body: v.object({ name: v.string() })
+})
+```
+
+## Next Steps
+
+- **Try Official Integrations**: [Valibot](/docs/validation/valibot), [Zod](/docs/validation/zod), [TypeBox](/docs/validation/typebox), [ArkType](/docs/validation/arktype)
+- **Learn [Best Practices](/docs/best-practices)** for event sourcing
+- **Explore [Core Concepts](/docs/core-concepts)** in depth
+
+<Callout type="tip">
+**Pro Tip: Start Simple**
+
+Unless you have a specific reason to use `standard()`, start with an official integration. The reduced boilerplate and automatic namespace handling make development faster and easier.
+</Callout>
+
+---
+
+<Cards>
+  <Card
+    title="Validation Overview"
+    description="Learn about all validation libraries"
+    href="/docs/validation"
+  />
+  <Card
+    title="Valibot Guide"
+    description="Lightweight and modular"
+    href="/docs/validation/valibot"
+  />
+  <Card
+    title="Zod Guide"
+    description="Popular and well-established"
+    href="/docs/validation/zod"
+  />
+  <Card
+    title="TypeBox Guide"
+    description="JSON Schema compatible"
+    href="/docs/validation/typebox"
+  />
+  <Card
+    title="ArkType Guide"
+    description="Ultra-fast validation"
+    href="/docs/validation/arktype"
+  />
+</Cards>

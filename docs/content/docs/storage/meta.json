@@ -1,0 +1,10 @@
+{
+  "title": "Storage",
+  "pages": [
+    "index",
+    "in-memory",
+    "mongodb",
+    "postgresql",
+    "custom-adapters"
+  ]
+}

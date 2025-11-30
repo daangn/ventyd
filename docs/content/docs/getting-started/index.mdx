@@ -1,0 +1,146 @@
+---
+title: Getting Started
+description: Learn the basics of Ventyd and get up and running quickly
+---
+
+# Getting Started with Ventyd
+
+Welcome to Ventyd! This guide will help you understand what Ventyd is and how to get started with event sourcing in TypeScript.
+
+## What is Ventyd?
+
+Ventyd is a **TypeScript-first event sourcing library** that helps you build applications where every state change is captured as an immutable event. Think of it as a complete audit trail for your application's data.
+
+### Why Event Sourcing?
+
+Traditional applications store only the current state of your data. Event sourcing is different - it stores **all the events** that led to the current state. This is like having a complete history of everything that happened in your application.
+
+**Example:** Instead of just storing a user's current email address, you store:
+1. `user:created` - User signed up with email `john@example.com`
+2. `user:email_updated` - Email changed to `john.doe@example.com`
+3. `user:email_updated` - Email changed to `johndoe@company.com`
+
+This gives you powerful capabilities:
+
+- **Complete Audit Trail** - Know exactly what happened, when, and why
+- **Time Travel** - Reconstruct your data at any point in history
+- **Event Replay** - Rebuild your database from scratch using events
+- **Debugging** - Understand exactly how bugs occurred
+
+## Key Features
+
+<Cards>
+  <Card
+    title="Type-Safe"
+    description="Full TypeScript support with comprehensive type inference - catch errors at compile time"
+  />
+  <Card
+    title="Flexible Validation"
+    description="Use your favorite validation library - Valibot, Zod, ArkType, TypeBox, or any Standard Schema library"
+  />
+  <Card
+    title="Database Agnostic"
+    description="Simple adapter interface works with any database - MongoDB, PostgreSQL, Redis, or custom solutions"
+  />
+  <Card
+    title="Extensible"
+    description="Plugin system for side effects like analytics, logging, notifications, and more"
+  />
+</Cards>
+
+## How It Works
+
+Ventyd follows a simple pattern:
+
+1. **Define your schema** - Describe your events and state using a validation library
+2. **Create a reducer** - Define how events transform your state
+3. **Build your entity** - Add business logic as methods
+4. **Set up storage** - Connect to your database with an adapter
+5. **Use it!** - Create, update, and query your entities
+
+```typescript
+// 1. Define schema
+const userSchema = defineSchema("user", {
+  schema: valibot({
+    event: {
+      created: v.object({
+        email: v.pipe(v.string(), v.email())
+      })
+    },
+    state: v.object({
+      email: v.string()
+    })
+  }),
+  initialEventName: "user:created"
+});
+
+// 2. Create reducer
+const userReducer = defineReducer(userSchema, (prevState, event) => {
+  if (event.eventName === "user:created") {
+    return { email: event.body.email };
+  }
+  return prevState;
+});
+
+// 3. Build entity
+class User extends Entity(userSchema, userReducer) {
+  get email() {
+    return this.state.email;
+  }
+}
+
+// 4. Set up storage
+const userRepository = createRepository(User, {
+  adapter: createInMemoryAdapter()
+});
+
+// 5. Use it!
+const user = User.create({
+  body: { email: "john@example.com" }
+});
+await userRepository.commit(user);
+```
+
+## Next Steps
+
+Ready to dive in? Here's what to do next:
+
+
+  
+    ### Install Ventyd
+
+    Learn how to [install Ventyd](/docs/getting-started/installation) and choose your validation library.
+  
+
+  
+    ### Follow the Quick Start
+
+    Build your first event-sourced entity with our [Quick Start guide](/docs/getting-started/quick-start).
+  
+
+  
+    ### Create Your First Entity
+
+    Get hands-on experience with a [real-world example](/docs/getting-started/your-first-entity).
+  
+
+  
+    ### Learn Core Concepts
+
+    Understand the [fundamental concepts](/docs/core-concepts) of event sourcing with Ventyd.
+  
+
+
+## Community & Support
+
+- **GitHub**: [daangn/ventyd](https://github.com/daangn/ventyd)
+- **Issues**: Report bugs or request features on [GitHub Issues](https://github.com/daangn/ventyd/issues)
+- **License**: MIT - free for commercial and personal use
+
+---
+
+<Callout type="info">
+**New to Event Sourcing?**
+
+Don't worry! Event sourcing might seem complex at first, but Ventyd makes it approachable. Start with the [Quick Start](/docs/getting-started/quick-start) guide and build something simple. The concepts will become clearer as you use them.
+</Callout>

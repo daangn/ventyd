@@ -1,0 +1,474 @@
+---
+title: Event Naming Best Practices
+description: Learn how to name events effectively for clarity and maintainability
+---
+
+# Event Naming Best Practices
+
+Event names are the first thing developers read when understanding your event-sourced system. Clear, consistent naming conventions make your codebase more maintainable, self-documenting, and easier to understand.
+
+## Core Principles
+
+### 1. Use Past Tense
+
+Events represent facts that have already happened. Use past tense verbs:
+
+```typescript
+// Good - Events use past tense
+"user:created"
+"order:payment_received"
+"subscription:cancelled"
+"product:price_updated"
+
+// Avoid - Present or future tense
+"user:create"           // ❌ Present tense
+"order:will_ship"       // ❌ Future tense
+"payment:charging"      // ❌ Present continuous
+```
+
+**Why?** Past tense emphasizes that these are immutable facts recorded in history, not commands or intentions.
+
+### 2. Be Descriptive and Specific
+
+Use clear, unambiguous names that describe exactly what happened:
+
+```typescript
+// Good - Specific and descriptive
+"user:email_verified"
+"order:shipped_to_address"
+"payment:refund_initiated"
+"subscription:renewal_failed"
+
+// Avoid - Vague or too generic
+"user:updated"          // ❌ Too vague
+"order:changed"         // ❌ Too generic
+"payment:processed"     // ❌ Ambiguous (success or failure?)
+"subscription:modified" // ❌ Unclear what changed
+```
+
+**Why?** Specific names make the event log self-documenting and reduce need for comments.
+
+### 3. Include Domain Context
+
+Include the entity type in the event name:
+
+```typescript
+// Good - Includes entity type
+"user:created"
+"order:item_added"
+"payment:confirmed"
+
+// Avoid - Missing entity context
+"created"       // ❌ Created what?
+"item_added"    // ❌ Added to what?
+"confirmed"     // ❌ Confirmed what?
+```
+
+**Why?** Domain context helps developers quickly identify which entity the event relates to.
+
+## Naming Patterns
+
+### Standard Format
+
+The recommended format is: `entity:action`
+
+```typescript
+// Entity-based pattern
+const userSchema = defineSchema("user", {
+  schema: valibot({
+    event: {
+      created: v.object({ email: v.string() }),
+      email_verified: v.object({ timestamp: v.string() }),
+      profile_updated: v.object({ bio: v.string() }),
+      password_changed: v.object({ timestamp: v.string() }),
+      deleted: v.object({})
+    },
+    state: v.object({
+      email: v.string(),
+      emailVerified: v.boolean(),
+      bio: v.string()
+    })
+  }),
+  initialEventName: "user:created"
+});
+```
+
+This becomes: `user:created`, `user:email_verified`, `user:profile_updated`, etc.
+
+### Multi-Word Actions
+
+Use underscores for multi-word actions:
+
+```typescript
+// Good - Clear word boundaries
+"order:payment_received"
+"subscription:renewal_failed"
+"user:email_verification_sent"
+"product:price_increased"
+
+// Avoid - CamelCase for event names (save for field names)
+"order:paymentReceived"     // ❌ Use snake_case for events
+"subscription:renewalFailed" // ❌ Inconsistent with convention
+```
+
+**Why?** Underscores are consistent with event sourcing conventions and easier to parse in logs.
+
+## Domain-Specific Patterns
+
+### E-Commerce Domain
+
+```typescript
+// Products
+"product:created"
+"product:price_updated"
+"product:stock_adjusted"
+"product:archived"
+
+// Orders
+"order:created"
+"order:item_added"
+"order:item_removed"
+"order:shipping_address_updated"
+"order:payment_received"
+"order:shipped"
+"order:delivered"
+"order:returned"
+"order:refund_issued"
+
+// Payments
+"payment:charged"
+"payment:failed"
+"payment:refunded"
+"payment:disputed"
+```
+
+### SaaS Domain
+
+```typescript
+// Users
+"user:signed_up"
+"user:email_verified"
+"user:password_changed"
+"user:profile_updated"
+"user:account_deleted"
+
+// Subscriptions
+"subscription:started"
+"subscription:plan_changed"
+"subscription:payment_failed"
+"subscription:renewed"
+"subscription:cancelled"
+"subscription:paused"
+
+// Features
+"feature:enabled"
+"feature:disabled"
+"feature:limit_reached"
+"feature:usage_tracked"
+```
+
+### Content Management Domain
+
+```typescript
+// Posts
+"post:created"
+"post:published"
+"post:draft_saved"
+"post:updated"
+"post:scheduled"
+"post:archived"
+
+// Comments
+"comment:added"
+"comment:edited"
+"comment:deleted"
+"comment:flagged_as_spam"
+
+// Media
+"media:uploaded"
+"media:processed"
+"media:deleted"
+"media:tagged"
+```
+
+## Distinguishing Event Types
+
+### Creation Events
+
+Use `created` or `registered` for initial entity creation:
+
+```typescript
+// Good
+"user:created"
+"order:created"
+"project:created"
+"account:registered"
+
+// Context-specific alternatives
+"account:sign_up_completed"
+"team:onboarded"
+```
+
+### Modification Events
+
+Use specific verbs for state changes:
+
+```typescript
+// Updated fields
+"user:profile_updated"
+"order:shipping_address_updated"
+"subscription:payment_method_updated"
+
+// Specific changes
+"user:email_changed"
+"user:password_reset"
+"order:status_changed"
+
+// Added/removed
+"order:item_added"
+"order:item_removed"
+"team:member_added"
+"team:member_removed"
+```
+
+### Deletion Events
+
+Use `deleted` for soft deletes, distinguish hard deletes:
+
+```typescript
+// Soft delete
+"user:deleted"      // User is marked deleted but data remains
+
+// Hard delete (use sparingly in event sourcing)
+"user:permanently_deleted"
+"data:purged"
+```
+
+### Verification/Confirmation Events
+
+Use specific verbs for validations:
+
+```typescript
+"email:verification_requested"
+"email:verified"
+"email:verification_failed"
+
+"payment:processing"
+"payment:confirmed"
+"payment:failed"
+
+"order:confirmed"
+"order:cancelled"
+```
+
+## What to Avoid
+
+### Avoid Ambiguous Names
+
+```typescript
+// BAD - What does "updated" mean?
+"user:updated"
+"order:updated"
+"payment:updated"
+
+// GOOD - Specific change
+"user:profile_updated"
+"user:email_changed"
+"order:status_changed"
+"payment:refunded"
+```
+
+### Avoid Cryptic Abbreviations
+
+```typescript
+// BAD - Hard to understand
+"usr:prof_upd"
+"ord:itm_adj"
+"pmt:conf"
+
+// GOOD - Clear and readable
+"user:profile_updated"
+"order:item_adjusted"
+"payment:confirmed"
+```
+
+### Avoid Mixing Tenses
+
+```typescript
+// BAD - Inconsistent tenses
+"user:create"        // Present
+"order:created"      // Past
+"payment:confirmed"  // Past
+"item:adding"        // Present continuous
+
+// GOOD - Consistent past tense
+"user:created"
+"order:created"
+"payment:confirmed"
+"item:added"
+```
+
+### Avoid Action-like Names for Events
+
+```typescript
+// BAD - Sounds like commands
+"SendEmail"
+"ChargePayment"
+"ProcessOrder"
+"UpdateUser"
+
+// GOOD - Past tense, sounds like facts
+"email_sent"
+"payment_charged"
+"order_processed"
+"user_updated"
+```
+
+### Avoid Negations
+
+```typescript
+// BAD - Harder to reason about
+"user:not_verified"
+"payment:not_received"
+"order:not_shipped"
+
+// GOOD - Positive statements
+"user:verification_failed"
+"payment:failed"
+"order:shipment_delayed"
+```
+
+## Naming at Scale
+
+### Versioning Events
+
+When you need to evolve event schemas, use versioning:
+
+```typescript
+const orderSchema = defineSchema("order", {
+  schema: valibot({
+    event: {
+      // Version 1 - Simple format
+      created: v.object({
+        items: v.array(v.string())
+      }),
+      // Version 2 - More detailed
+      created_v2: v.object({
+        items: v.array(v.object({
+          productId: v.string(),
+          quantity: v.number(),
+          price: v.number()
+        }))
+      })
+    },
+    state: v.object({
+      items: v.array(v.object({
+        productId: v.string(),
+        quantity: v.number(),
+        price: v.number()
+      }))
+    })
+  }),
+  initialEventName: "order:created"
+});
+```
+
+### Namespace Separation
+
+You can customize the separator if needed:
+
+```typescript
+const userSchema = defineSchema("user", {
+  schema: valibot({
+    event: {
+      created: v.object({ email: v.string() }),
+      password_changed: v.object({})
+    },
+    state: v.object({ email: v.string() }),
+    namespaceSeparator: "/" // Use "/" instead of ":"
+  }),
+  initialEventName: "user/created"
+});
+
+// Events become: user/created, user/password_changed
+```
+
+## Testing Event Names
+
+Write tests to ensure consistency:
+
+```typescript
+import { describe, it, expect } from 'vitest';
+
+describe('Event Naming Conventions', () => {
+  it('all event names use past tense', () => {
+    const eventNames = [
+      'user:created',
+      'order:shipped',
+      'payment:confirmed'
+    ];
+
+    const presentTensePattern = /^.*:(create|update|delete|add|remove)$/;
+
+    eventNames.forEach(name => {
+      expect(name).not.toMatch(presentTensePattern);
+    });
+  });
+
+  it('all event names follow entity:action pattern', () => {
+    const eventNames = [
+      'user:created',
+      'order:payment_received',
+      'subscription:cancelled'
+    ];
+
+    const validPattern = /^[a-z_]+:[a-z_]+$/;
+
+    eventNames.forEach(name => {
+      expect(name).toMatch(validPattern);
+    });
+  });
+
+  it('multi-word actions use underscores', () => {
+    const eventNames = [
+      'user:email_verified',
+      'order:shipping_address_updated'
+    ];
+
+    eventNames.forEach(name => {
+      const [, action] = name.split(':');
+      expect(action).not.toMatch(/[A-Z]/); // No camelCase
+    });
+  });
+});
+```
+
+## Summary
+
+### Event Naming Checklist
+
+- [ ] Use **past tense** verbs (created, updated, deleted)
+- [ ] Be **specific** (not "updated", but "email_changed")
+- [ ] Include **domain context** (entity:action format)
+- [ ] Use **underscores** for multi-word actions
+- [ ] Avoid **abbreviations** unless universally known
+- [ ] Keep names **lowercase** with underscores
+- [ ] Be **consistent** across your event types
+- [ ] Make events **self-documenting**
+
+### Good vs Bad Examples
+
+| Scenario | Bad | Good |
+|----------|-----|------|
+| User signup | `user:create` | `user:created` |
+| Email verification | `email:verify` | `email:verified` |
+| Order fulfillment | `order:ship` | `order:shipped` |
+| Payment processing | `payment:charge` | `payment:charged` |
+| Generic update | `user:updated` | `user:email_changed` |
+| Ambiguous action | `process` | `order:processing_started` |
+
+## Related Documentation
+
+- [Event Granularity](/docs/guides/event-granularity)
+- [Best Practices](/docs/best-practices)
+- [Event Versioning](/docs/guides/event-versioning)

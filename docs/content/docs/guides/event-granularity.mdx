@@ -1,0 +1,547 @@
+---
+title: Event Granularity Guide
+description: Determine the right level of detail for your events
+---
+
+# Event Granularity Guide
+
+Event granularity refers to how fine-grained your events are. This guide helps you decide the appropriate level of detail for your events to balance clarity, auditability, and reusability.
+
+## What is Event Granularity?
+
+Event granularity determines whether you capture many small, focused events or fewer large events with multiple changes.
+
+```typescript
+// Fine-grained: Many small, focused events
+dispatch("order:item_added", { productId, quantity, price });
+dispatch("order:shipping_address_set", { address });
+dispatch("order:payment_method_selected", { method });
+dispatch("order:confirmed", {});
+
+// Coarse-grained: Few large events with multiple changes
+dispatch("order:created", {
+  items,
+  shippingAddress,
+  paymentMethod,
+  status: "confirmed"
+});
+```
+
+## Core Principles
+
+### 1. One Business Fact Per Event
+
+Each event should represent a single, atomic business fact:
+
+```typescript
+// Good - Single fact per event
+dispatch("user:email_changed", { newEmail });
+dispatch("user:password_reset", {});
+dispatch("user:profile_updated", { bio, avatar });
+
+// Avoid - Multiple unrelated facts
+dispatch("user:updated", {
+  email: newEmail,
+  password: newPassword,
+  bio: newBio,
+  avatar: newAvatar,
+  settings: newSettings
+  // Too many unrelated changes!
+});
+```
+
+**Why?** Single-fact events enable precise audit trails, easier replay, and clearer business logic.
+
+### 2. Capture User Intent
+
+Events should represent meaningful business actions, not implementation details:
+
+```typescript
+// Good - Represents user intent
+"user:email_verified"
+"subscription:renewed"
+"payment:dispute_filed"
+"order:cancelled_by_customer"
+
+// Avoid - Implementation details
+"database:row_updated"
+"cache:invalidated"
+"field:changed"
+"validation:passed"
+```
+
+**Why?** Business-level events help stakeholders understand what's happening in your system.
+
+### 3. Support Your Queries
+
+Events should provide enough detail to answer your questions without loading other entities:
+
+```typescript
+// Good - Contains enough context for queries
+dispatch("order:shipped", {
+  trackingNumber: "...",
+  estimatedDelivery: "2024-02-15",
+  carrier: "FedEx"
+});
+
+// Avoid - Missing needed context
+dispatch("order:shipped", {
+  // Missing: tracking info, carrier, estimated delivery
+});
+```
+
+**Why?** Complete event data reduces N+1 query problems and supports both event-driven and traditional queries.
+
+## Granularity Patterns
+
+### Pattern 1: Fine-Grained Events (Recommended)
+
+Emit separate events for each independent state change:
+
+```typescript
+class ShoppingCart extends Entity(cartSchema, cartReducer) {
+  addItem = mutation(this, (dispatch, item: CartItem) => {
+    dispatch("cart:item_added", item);
+  });
+
+  updateItemQuantity = mutation(
+    this,
+    (dispatch, itemId: string, quantity: number) => {
+      dispatch("cart:item_quantity_changed", {
+        itemId,
+        quantity
+      });
+    }
+  );
+
+  setShippingAddress = mutation(
+    this,
+    (dispatch, address: Address) => {
+      dispatch("cart:shipping_address_set", address);
+    }
+  );
+
+  selectPaymentMethod = mutation(
+    this,
+    (dispatch, method: PaymentMethod) => {
+      dispatch("cart:payment_method_selected", method);
+    }
+  );
+
+  checkout = mutation(this, (dispatch) => {
+    dispatch("cart:checked_out", {
+      timestamp: new Date().toISOString()
+    });
+  });
+}
+```
+
+**Advantages:**
+- Clear audit trail showing each decision
+- Easy to replay specific state changes
+- Better for event-driven workflows
+- Clearer business logic
+- Flexible for future requirements
+
+**Disadvantages:**
+- More events to handle
+- More reducer cases
+- Slightly more storage
+
+### Pattern 2: Coarse-Grained Events
+
+Group related changes into single events:
+
+```typescript
+class ShoppingCart extends Entity(cartSchema, cartReducer) {
+  checkout = mutation(
+    this,
+    (dispatch, checkout: CheckoutData) => {
+      dispatch("cart:checked_out", {
+        items: checkout.items,
+        shippingAddress: checkout.shippingAddress,
+        paymentMethod: checkout.paymentMethod,
+        total: checkout.total
+      });
+    }
+  );
+}
+```
+
+**Advantages:**
+- Fewer events
+- Sometimes more natural for batch operations
+- Less reducer complexity
+
+**Disadvantages:**
+- Loss of fine-grained audit trail
+- Harder to reason about changes
+- Less flexible for future changes
+- Harder to replay partial changes
+
+## Choosing the Right Granularity
+
+### Choose Fine-Grained When:
+
+```typescript
+// 1. You need detailed audit trails
+// Banking, healthcare, compliance systems
+dispatch("account:withdrawal_initiated", { amount });
+dispatch("account:withdrawal_approved", { authorizer });
+dispatch("account:withdrawal_completed", { transactionId });
+
+// 2. Multiple people/systems can act independently
+// E-commerce with inventory system
+dispatch("order:item_added", { productId, quantity });
+dispatch("inventory:reserved", { productId, quantity });
+dispatch("order:payment_confirmed", {});
+dispatch("inventory:committed", { productId, quantity });
+
+// 3. Different parts need to react to different changes
+// User settings where each change triggers different notifications
+dispatch("user:email_changed", { newEmail });
+// -> Email service needs to verify
+dispatch("user:notification_preferences_updated", {});
+// -> Notification service reacts
+dispatch("user:privacy_settings_changed", {});
+// -> Privacy system reacts
+
+// 4. Events represent important business milestones
+// Sales funnel tracking
+dispatch("product:viewed", { productId });
+dispatch("product:added_to_cart", { productId });
+dispatch("checkout:started", {});
+dispatch("payment:processed", {});
+dispatch("order:confirmed", {});
+```
+
+### Choose Coarse-Grained When:
+
+```typescript
+// 1. Batch operations that are always done together
+// Initial entity creation with all required fields
+dispatch("user:account_created", {
+  email,
+  password,
+  name,
+  plan: "free"
+});
+
+// 2. All changes come from same source at same time
+// Form submission with multiple fields
+dispatch("profile:submitted", {
+  firstName,
+  lastName,
+  bio,
+  avatar
+});
+
+// 3. You have a clear "checkpoint" in the process
+// Nightly data sync
+dispatch("inventory:synchronized", {
+  products: updatedProducts,
+  warehouse: warehouseState
+});
+```
+
+## Real-World Examples
+
+### E-Commerce Order (Fine-Grained)
+
+```typescript
+const orderSchema = defineSchema("order", {
+  schema: valibot({
+    event: {
+      // Order creation
+      created: v.object({ customerId: v.string() }),
+
+      // Item management
+      item_added: v.object({
+        productId: v.string(),
+        quantity: v.number(),
+        price: v.number()
+      }),
+      item_quantity_updated: v.object({
+        productId: v.string(),
+        quantity: v.number()
+      }),
+      item_removed: v.object({ productId: v.string() }),
+
+      // Shipping
+      shipping_address_set: v.object({ address: v.object({}) }),
+      shipping_method_selected: v.object({
+        method: v.string(),
+        cost: v.number()
+      }),
+
+      // Payment
+      payment_method_added: v.object({ method: v.string() }),
+      payment_processed: v.object({
+        amount: v.number(),
+        transactionId: v.string()
+      }),
+
+      // Order status
+      confirmed: v.object({}),
+      shipped: v.object({ trackingNumber: v.string() }),
+      delivered: v.object({ deliveredAt: v.string() }),
+      cancelled: v.object({ reason: v.string() })
+    },
+    state: v.object({
+      customerId: v.string(),
+      items: v.array(v.object({})),
+      shippingAddress: v.optional(v.object({})),
+      paymentMethod: v.optional(v.string()),
+      status: v.string(),
+      total: v.number()
+    })
+  }),
+  initialEventName: "order:created"
+});
+
+class Order extends Entity(orderSchema, orderReducer) {
+  addItem = mutation(this, (dispatch, item) => {
+    dispatch("order:item_added", item);
+  });
+
+  updateItemQuantity = mutation(
+    this,
+    (dispatch, productId, quantity) => {
+      dispatch("order:item_quantity_updated", { productId, quantity });
+    }
+  );
+
+  setShippingAddress = mutation(this, (dispatch, address) => {
+    dispatch("order:shipping_address_set", { address });
+  });
+
+  processPayment = mutation(this, (dispatch, amount) => {
+    dispatch("order:payment_processed", {
+      amount,
+      transactionId: generateTransactionId()
+    });
+  });
+
+  confirm = mutation(this, (dispatch) => {
+    if (this.state.items.length === 0) {
+      throw new Error("Order must have items");
+    }
+    dispatch("order:confirmed", {});
+  });
+}
+```
+
+Benefits of fine-grained events:
+- Clear audit trail of every change
+- Easy to track conversion funnel
+- Different systems can react to different changes
+- Easy to replay from any point
+- Clear when customer made each decision
+
+### SaaS Subscription (Coarse-Grained)
+
+```typescript
+const subscriptionSchema = defineSchema("subscription", {
+  schema: valibot({
+    event: {
+      // Batch creation with all required data
+      created: v.object({
+        customerId: v.string(),
+        plan: v.string(),
+        billingCycle: v.string(),
+        startDate: v.string()
+      }),
+
+      // Plan changes (all at once)
+      plan_changed: v.object({
+        oldPlan: v.string(),
+        newPlan: v.string(),
+        effectiveDate: v.string()
+      }),
+
+      // Payment failure/recovery
+      payment_failed: v.object({
+        reason: v.string(),
+        retryDate: v.string()
+      }),
+      payment_recovered: v.object({}),
+
+      // Lifecycle events
+      paused: v.object({ resumeDate: v.string() }),
+      resumed: v.object({}),
+      cancelled: v.object({ reason: v.string() })
+    },
+    state: v.object({
+      customerId: v.string(),
+      plan: v.string(),
+      status: v.string(),
+      nextBillingDate: v.string()
+    })
+  }),
+  initialEventName: "subscription:created"
+});
+
+class Subscription extends Entity(subscriptionSchema, subscriptionReducer) {
+  // Coarse-grained: handles all subscription setup at once
+  create = mutation(this, (dispatch, data) => {
+    dispatch("subscription:created", {
+      customerId: data.customerId,
+      plan: data.plan,
+      billingCycle: data.billingCycle,
+      startDate: data.startDate
+    });
+  });
+
+  // Coarse-grained: plan change is atomic
+  changePlan = mutation(this, (dispatch, newPlan) => {
+    dispatch("subscription:plan_changed", {
+      oldPlan: this.state.plan,
+      newPlan,
+      effectiveDate: new Date().toISOString()
+    });
+  });
+
+  // Could be fine-grained or coarse depending on needs
+  cancel = mutation(this, (dispatch, reason) => {
+    dispatch("subscription:cancelled", { reason });
+  });
+}
+```
+
+Benefits of coarse-grained events:
+- Simpler to understand as a unit
+- Clearer intent (user wants to change plans, not just updating fields)
+- Less events to handle
+- Good for batch operations
+
+## Mixing Granularities
+
+You can mix fine-grained and coarse-grained events in the same entity:
+
+```typescript
+class Order extends Entity(orderSchema, orderReducer) {
+  // Fine-grained: user builds order item by item
+  addItem = mutation(this, (dispatch, item) => {
+    dispatch("order:item_added", item);
+  });
+
+  updateItemQuantity = mutation(this, (dispatch, productId, qty) => {
+    dispatch("order:item_quantity_updated", { productId, qty });
+  });
+
+  // Coarse-grained: entire checkout at once
+  checkout = mutation(this, (dispatch, checkoutData) => {
+    // Validate all required fields
+    if (!this.state.items.length) {
+      throw new Error("Order empty");
+    }
+
+    // Single event for the "checkpoint"
+    dispatch("order:checked_out", {
+      shippingAddress: checkoutData.shippingAddress,
+      paymentMethod: checkoutData.paymentMethod,
+      total: calculateTotal(this.state),
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // Fine-grained: track payment stages
+  processPayment = mutation(this, (dispatch, amount) => {
+    dispatch("order:payment_processed", {
+      amount,
+      transactionId: generateId()
+    });
+  });
+
+  confirmShipment = mutation(this, (dispatch, tracking) => {
+    dispatch("order:shipped", {
+      trackingNumber: tracking,
+      shippedAt: new Date().toISOString()
+    });
+  });
+}
+```
+
+## Anti-Patterns to Avoid
+
+### Anti-Pattern 1: God Events
+
+```typescript
+// BAD - Single massive event
+dispatch("order:updated", {
+  items: [...],
+  shippingAddress: {...},
+  paymentMethod: "credit_card",
+  status: "confirmed",
+  notes: "...",
+  customFields: {...}
+  // Changed everything at once!
+});
+
+// GOOD - Specific events
+dispatch("order:item_added", { productId, quantity });
+dispatch("order:shipping_address_updated", { address });
+dispatch("order:payment_method_selected", { method });
+dispatch("order:confirmed", {});
+```
+
+### Anti-Pattern 2: Too Fine-Grained
+
+```typescript
+// BAD - Overly granular
+dispatch("user:first_name_changed", { firstName });
+dispatch("user:last_name_changed", { lastName });
+dispatch("user:email_changed", { email });
+dispatch("user:phone_changed", { phone });
+dispatch("user:timezone_changed", { timezone });
+// When they're all part of one profile update
+
+// GOOD - Grouped logically
+dispatch("user:profile_updated", {
+  firstName,
+  lastName,
+  email,
+  phone,
+  timezone
+});
+```
+
+### Anti-Pattern 3: Implementation Details
+
+```typescript
+// BAD - Technical events, not business events
+dispatch("cache:cleared", {});
+dispatch("database:indexed", {});
+dispatch("field:validated", {});
+dispatch("service:called", { service: "payment" });
+
+// GOOD - Business-level events
+dispatch("payment:processed", { amount, transactionId });
+dispatch("inventory:updated", { productId, quantity });
+```
+
+## Summary
+
+### Granularity Decision Tree
+
+1. **Does this change represent a single business fact?**
+   - Yes → Fine-grained event
+   - No → Multiple events
+
+2. **Can other parts of the system react to this change independently?**
+   - Yes → Fine-grained event
+   - No → Could be coarse-grained
+
+3. **Do you need audit trail of this specific change?**
+   - Yes → Fine-grained event
+   - No → Could be coarse-grained
+
+4. **Is this change always done with related changes?**
+   - Yes → Coarse-grained event
+   - No → Fine-grained event
+
+## Related Documentation
+
+- [Event Naming](/docs/guides/event-naming)
+- [Best Practices](/docs/best-practices)
+- [Creating Custom Plugins](/docs/plugins/creating-plugins)

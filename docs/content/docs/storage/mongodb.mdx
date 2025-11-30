@@ -1,0 +1,677 @@
+---
+title: MongoDB Adapter
+description: Production-ready MongoDB adapter for Ventyd with horizontal scalability, transaction support, and flexible schema.
+---
+
+# MongoDB Adapter
+
+MongoDB is an excellent choice for event sourcing with its flexible schema, horizontal scalability, and rich query capabilities. This guide covers implementing and optimizing a MongoDB adapter for production use.
+
+## Installation
+
+```bash
+npm install mongodb
+# or
+yarn add mongodb
+```
+
+## Basic Implementation
+
+```typescript
+import type { Adapter } from 'ventyd';
+import { MongoClient, Db, Collection } from 'mongodb';
+
+const createMongoDBAdapter = (uri: string, dbName: string): Adapter => {
+  const client = new MongoClient(uri);
+  const db = client.db(dbName);
+  const collection = db.collection('events');
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      return collection
+        .find({ entityName, entityId })
+        .sort({ eventCreatedAt: 1 })
+        .toArray();
+    },
+
+    async commitEvents({ events }) {
+      if (events.length === 0) {
+        return;
+      }
+
+      await collection.insertMany(events);
+    }
+  };
+};
+
+// Usage
+const adapter = createMongoDBAdapter(
+  process.env.MONGODB_URI || 'mongodb://localhost:27017',
+  'ventyd-events'
+);
+
+const userRepository = createRepository(User, { adapter });
+```
+
+## Production-Ready Implementation
+
+A more robust adapter with connection pooling, error handling, and indexing:
+
+```typescript
+import type { Adapter, Event } from 'ventyd';
+import {
+  MongoClient,
+  Db,
+  Collection,
+  MongoError,
+  ClientSession
+} from 'mongodb';
+
+interface MongoDBAdapterOptions {
+  maxPoolSize?: number;
+  minPoolSize?: number;
+  serverSelectionTimeoutMS?: number;
+  socketTimeoutMS?: number;
+}
+
+const createMongoDBAdapter = (
+  uri: string,
+  dbName: string,
+  options: MongoDBAdapterOptions = {}
+): Adapter => {
+  const {
+    maxPoolSize = 50,
+    minPoolSize = 10,
+    serverSelectionTimeoutMS = 5000,
+    socketTimeoutMS = 45000
+  } = options;
+
+  const client = new MongoClient(uri, {
+    maxPoolSize,
+    minPoolSize,
+    serverSelectionTimeoutMS,
+    socketTimeoutMS,
+    retryWrites: true,
+    retryReads: true
+  });
+
+  const db = client.db(dbName);
+  const collection = db.collection('events');
+
+  // Ensure indexes exist
+  const ensureIndexes = async () => {
+    try {
+      // Composite index for entity queries
+      await collection.createIndex(
+        { entityName: 1, entityId: 1 },
+        { background: true, name: 'entity_lookup' }
+      );
+
+      // Index for chronological ordering
+      await collection.createIndex(
+        { eventCreatedAt: 1 },
+        { background: true, name: 'time_ordering' }
+      );
+
+      // Compound index for range queries
+      await collection.createIndex(
+        { entityName: 1, entityId: 1, eventCreatedAt: 1 },
+        { background: true, name: 'entity_time' }
+      );
+
+      // Unique index on eventId to prevent duplicates
+      await collection.createIndex(
+        { eventId: 1 },
+        { unique: true, name: 'event_id_unique' }
+      );
+
+      console.log('[MongoDB] Indexes ensured');
+    } catch (error) {
+      console.error('[MongoDB] Index creation failed', error);
+    }
+  };
+
+  // Initialize on first use
+  let initialized = false;
+
+  const initialize = async () => {
+    if (initialized) return;
+
+    try {
+      await client.connect();
+      await ensureIndexes();
+      initialized = true;
+      console.log('[MongoDB] Connected and initialized');
+    } catch (error) {
+      console.error('[MongoDB] Connection failed', error);
+      throw error;
+    }
+  };
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      try {
+        await initialize();
+
+        const events = await collection
+          .find({
+            entityName,
+            entityId
+          })
+          .sort({ eventCreatedAt: 1 })
+          .toArray();
+
+        if (events.length === 0) {
+          return [];
+        }
+
+        // Verify chronological order
+        for (let i = 1; i < events.length; i++) {
+          const prev = new Date(events[i - 1].eventCreatedAt).getTime();
+          const curr = new Date(events[i].eventCreatedAt).getTime();
+
+          if (prev > curr) {
+            throw new Error(
+              `Events out of order for ${entityName}:${entityId}`
+            );
+          }
+        }
+
+        return events;
+      } catch (error) {
+        if (error instanceof MongoError) {
+          throw new Error(
+            `MongoDB query failed for ${entityName}:${entityId}`,
+            { cause: error }
+          );
+        }
+        throw error;
+      }
+    },
+
+    async commitEvents({ events }) {
+      try {
+        await initialize();
+
+        if (events.length === 0) {
+          return;
+        }
+
+        // Use transactions for atomicity
+        const session = client.startSession();
+
+        try {
+          await session.withTransaction(async () => {
+            // Check for duplicates (idempotent operation)
+            const existingIds = new Set<string>();
+
+            for (const event of events) {
+              const existing = await collection.findOne(
+                { eventId: event.eventId },
+                { session }
+              );
+
+              if (existing) {
+                console.warn(
+                  `[MongoDB] Duplicate event ${event.eventId}, skipping`
+                );
+                existingIds.add(event.eventId);
+              }
+            }
+
+            // Insert only new events
+            const newEvents = events.filter(
+              e => !existingIds.has(e.eventId)
+            );
+
+            if (newEvents.length > 0) {
+              await collection.insertMany(newEvents, { session });
+            }
+          });
+        } finally {
+          await session.endSession();
+        }
+      } catch (error) {
+        if (error instanceof MongoError) {
+          if (error.code === 11000) {
+            // Duplicate key error
+            console.warn(
+              '[MongoDB] Duplicate event detected, likely a retry'
+            );
+            return;
+          }
+        }
+        throw error;
+      }
+    }
+  };
+};
+```
+
+## Index Creation and Optimization
+
+Proper indexing is crucial for MongoDB performance:
+
+```typescript
+// Create all necessary indexes
+const setupMongoDBIndexes = async (db: Db) => {
+  const collection = db.collection('events');
+
+  // 1. Primary lookup index (most important)
+  await collection.createIndex(
+    { entityName: 1, entityId: 1 },
+    {
+      background: true,
+      name: 'idx_entity_lookup',
+      sparse: false
+    }
+  );
+
+  // 2. Chronological ordering
+  await collection.createIndex(
+    { eventCreatedAt: 1 },
+    {
+      background: true,
+      name: 'idx_time_ordering'
+    }
+  );
+
+  // 3. Compound index for most common query
+  await collection.createIndex(
+    { entityName: 1, entityId: 1, eventCreatedAt: 1 },
+    {
+      background: true,
+      name: 'idx_entity_time'
+    }
+  );
+
+  // 4. Deduplication
+  await collection.createIndex(
+    { eventId: 1 },
+    {
+      unique: true,
+      name: 'idx_event_id_unique'
+    }
+  );
+
+  // 5. Event type filtering (optional)
+  await collection.createIndex(
+    { eventName: 1 },
+    {
+      background: true,
+      name: 'idx_event_type'
+    }
+  );
+
+  // 6. TTL index for event cleanup (if needed)
+  await collection.createIndex(
+    { eventCreatedAt: 1 },
+    {
+      expireAfterSeconds: 2592000, // 30 days
+      name: 'idx_ttl',
+      sparse: true
+    }
+  );
+};
+```
+
+## Transaction Support
+
+MongoDB provides robust transaction support:
+
+```typescript
+async commitEvents({ events }) {
+  const session = client.startSession();
+
+  try {
+    await session.withTransaction(
+      async () => {
+        // All operations are atomic
+        await collection.insertMany(events, { session });
+
+        // Emit event log for audit trail
+        await auditCollection.insertOne(
+          {
+            timestamp: new Date(),
+            eventCount: events.length,
+            status: 'committed'
+          },
+          { session }
+        );
+      },
+      {
+        readConcern: { level: 'snapshot' },
+        writeConcern: { w: 'majority' },
+        readPreference: 'primary'
+      }
+    );
+  } finally {
+    await session.endSession();
+  }
+}
+```
+
+## Error Handling
+
+Comprehensive error handling for production:
+
+```typescript
+const handleMongoDBError = (error: Error, context: string): void => {
+  if (error instanceof MongoError) {
+    switch (error.code) {
+      case 11000:
+        // Duplicate key error
+        console.warn(`[MongoDB] ${context}: Duplicate event (likely retry)`);
+        break;
+
+      case 12587:
+        // Snapshot unavailable
+        console.error(`[MongoDB] ${context}: Transaction snapshot unavailable`);
+        throw new Error('Transaction failed - retry later');
+
+      case 20:
+        // Not a replica set
+        console.error(`[MongoDB] ${context}: Not a replica set`);
+        throw new Error('Transactions require a replica set');
+
+      default:
+        console.error(`[MongoDB] ${context}: Error ${error.code}`, error);
+        throw error;
+    }
+  } else {
+    console.error(`[MongoDB] ${context}: Unexpected error`, error);
+    throw error;
+  }
+};
+```
+
+## Usage Examples
+
+### Basic Setup
+
+```typescript
+import { createRepository } from 'ventyd';
+
+const adapter = createMongoDBAdapter(
+  'mongodb://localhost:27017',
+  'my-app-events'
+);
+
+const userRepository = createRepository(User, {
+  adapter,
+  plugins: [
+    // Add any plugins
+  ]
+});
+```
+
+### With Environment Configuration
+
+```typescript
+// config.ts
+import type { Adapter } from 'ventyd';
+
+let adapter: Adapter;
+
+if (process.env.NODE_ENV === 'development') {
+  adapter = createMongoDBAdapter(
+    'mongodb://localhost:27017',
+    'app-events-dev'
+  );
+} else {
+  adapter = createMongoDBAdapter(
+    process.env.MONGODB_ATLAS_URI || '',
+    'app-events-prod',
+    {
+      maxPoolSize: 100,
+      minPoolSize: 20
+    }
+  );
+}
+
+export { adapter };
+```
+
+### With MongoDB Atlas
+
+```typescript
+const adapter = createMongoDBAdapter(
+  `mongodb+srv://${process.env.MONGODB_USER}:${process.env.MONGODB_PASSWORD}@${process.env.MONGODB_CLUSTER}.mongodb.net/ventyd-events?retryWrites=true&w=majority`,
+  'ventyd-events',
+  {
+    maxPoolSize: 100,
+    minPoolSize: 20,
+    serverSelectionTimeoutMS: 10000
+  }
+);
+```
+
+## Performance Tips
+
+### 1. Use Bulk Inserts
+
+```typescript
+// ✅ Good - Single bulk operation
+async commitEvents({ events }) {
+  if (events.length > 0) {
+    await collection.insertMany(events);
+  }
+}
+
+// ❌ Avoid - Multiple individual inserts
+async commitEvents({ events }) {
+  for (const event of events) {
+    await collection.insertOne(event);
+  }
+}
+```
+
+### 2. Connection Pooling
+
+```typescript
+const client = new MongoClient(uri, {
+  maxPoolSize: 50,      // Maximum connections
+  minPoolSize: 10,      // Minimum connections
+  maxIdleTimeMS: 30000  // Idle timeout
+});
+```
+
+### 3. Index Optimization
+
+```typescript
+// Analyze query performance
+const stats = await collection.aggregate([
+  { $match: { entityName: 'user', entityId: 'user-123' } }
+]).explain('executionStats');
+
+console.log(stats.executionStats.executionStages);
+```
+
+### 4. Batch Commits
+
+```typescript
+// Instead of committing every event individually
+// Batch them for better performance
+const adapter = createMongoDBAdapter(...);
+
+const events: Event[] = [];
+
+async function addEvent(event: Event) {
+  events.push(event);
+
+  if (events.length >= 100) {
+    // Batch insert every 100 events
+    await adapter.commitEvents({ events });
+    events.length = 0;
+  }
+}
+```
+
+## Monitoring
+
+Monitor MongoDB adapter health:
+
+```typescript
+interface MongoDBMetrics {
+  eventCount: number;
+  entityCount: number;
+  averageEventsPerEntity: number;
+  collectionSize: number;
+  indexSizes: Record<string, number>;
+}
+
+const getMongoDBMetrics = async (
+  db: Db
+): Promise<MongoDBMetrics> => {
+  const collection = db.collection('events');
+  const stats = await collection.stats();
+  const indexes = await collection.getIndexes();
+
+  const events = await collection.countDocuments();
+  const entities = await collection.distinct('entityId');
+
+  return {
+    eventCount: events,
+    entityCount: entities.length,
+    averageEventsPerEntity: events / entities.length,
+    collectionSize: stats.size,
+    indexSizes: Object.fromEntries(
+      Object.entries(stats.indexSizes || {})
+    )
+  };
+};
+```
+
+## Best Practices
+
+### 1. Schema Validation
+
+Define MongoDB schema validation:
+
+```typescript
+const setupMongoDBValidation = async (db: Db) => {
+  await db.createCollection('events', {
+    validator: {
+      $jsonSchema: {
+        bsonType: 'object',
+        required: [
+          'eventId',
+          'eventName',
+          'eventCreatedAt',
+          'entityName',
+          'entityId',
+          'body'
+        ],
+        properties: {
+          eventId: { bsonType: 'string' },
+          eventName: { bsonType: 'string' },
+          eventCreatedAt: { bsonType: 'string' },
+          entityName: { bsonType: 'string' },
+          entityId: { bsonType: 'string' },
+          body: { bsonType: 'object' }
+        }
+      }
+    }
+  });
+};
+```
+
+### 2. Regular Backups
+
+```typescript
+// Schedule automated backups
+const scheduleBackup = () => {
+  setInterval(async () => {
+    await backup.create({
+      timestamp: new Date(),
+      retentionDays: 30
+    });
+  }, 24 * 60 * 60 * 1000); // Daily
+};
+```
+
+### 3. Monitor Replication Lag
+
+```typescript
+// Ensure events are replicated
+const checkReplicationLag = async (client: MongoClient) => {
+  const admin = client.db('admin');
+  const replStatus = await admin.command({ replSetGetStatus: 1 });
+
+  for (const member of replStatus.members) {
+    const lag = Math.abs(
+      replStatus.members[0].optime.ts - member.optime.ts
+    );
+
+    if (lag > 5000) {
+      console.warn(`Replication lag detected: ${lag}ms`);
+    }
+  }
+};
+```
+
+### 4. TTL Cleanup (Optional)
+
+```typescript
+// Automatically delete old events (if desired)
+await collection.createIndex(
+  { eventCreatedAt: 1 },
+  {
+    expireAfterSeconds: 7776000 // 90 days
+  }
+);
+```
+
+## Troubleshooting
+
+### Connection Issues
+
+<Callout type="warning">
+If you encounter connection errors:
+1. Check MongoDB is running: `mongodb://localhost:27017`
+2. Verify credentials and network access
+3. Check firewall and security groups
+4. Ensure replica set is initialized (for transactions)
+</Callout>
+
+### Transaction Errors
+
+```typescript
+// Error: "not a replica set"
+// Solution: Initialize replica set for development
+rs.initiate()
+
+// Error: "Snapshot unavailable"
+// Solution: Reduce concurrent transactions or increase
+// serverSelectionTimeoutMS
+```
+
+### Performance Issues
+
+```typescript
+// Check slow queries
+db.setProfilingLevel(1, { slowms: 100 })
+db.system.profile.find().limit(10).sort({ ts: -1 }).pretty()
+
+// Analyze index usage
+db.collection('events').aggregate([
+  { $match: { ... } }
+]).explain('executionStats')
+```
+
+## Comparison with Other Adapters
+
+| Feature | In-Memory | MongoDB | PostgreSQL |
+|---------|-----------|---------|------------|
+| Production Ready | ❌ | ✅ | ✅ |
+| Horizontal Scale | ❌ | ✅ | ❌ |
+| Transactions | ❌ | ✅ | ✅ |
+| Flexible Schema | ✅ | ✅ | ❌ |
+| Setup Complexity | Simple | Medium | Medium |
+| Performance | Fastest | Fast | Fast |
+
+## Next Steps
+
+- **[PostgreSQL Adapter](/docs/storage/postgresql)** - For relational databases
+- **[Custom Adapters](/docs/storage/custom-adapters)** - For other databases
+- **[Storage Overview](/docs/storage)** - Back to storage guide
