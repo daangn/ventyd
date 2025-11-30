@@ -18,11 +18,11 @@ A blog post entity with these capabilities:
 - ✅ Complete validation
 - ✅ Business rule enforcement
 
-## Step 1: Define the Schema
+## Define the Schema
 
 Let's start with a comprehensive schema that covers all our use cases.
 
-```typescript title="post.schema.ts"
+```typescript title="Post.schema.ts"
 import { defineSchema } from 'ventyd';
 import { valibot, v } from 'ventyd/valibot';
 
@@ -85,14 +85,13 @@ export const postSchema = defineSchema("post", {
 - Use descriptive event names (past tense)
 - Include audit fields (who did what, when)
 - Keep events focused - one event per action
-- Use optional fields for updates
 </Callout>
 
-## Step 2: Create the Reducer
+## Create the Reducer
 
 The reducer handles state transitions for each event.
 
-```typescript title="post.reducer.ts"
+```typescript title="Post.reducer.ts"
 import { defineReducer } from 'ventyd';
 import { postSchema } from './post.schema';
 
@@ -163,13 +162,14 @@ export const postReducer = defineReducer(postSchema, (prevState, event) => {
 - ✅ DO: Use event timestamps (`event.eventCreatedAt`)
 - ❌ DON'T: Mutate `prevState`
 - ❌ DON'T: Use `new Date()` or `Date.now()`
+- ❌ DON'T: throw `Error` (If you need to validate something, validate before dispatching the event in entity class)
 </Callout>
 
-## Step 3: Build the Entity with Business Logic
+## Build the Entity
 
 Now let's add comprehensive business logic.
 
-```typescript title="post.entity.ts"
+```typescript title="Post.ts"
 import { Entity, mutation } from 'ventyd';
 import { postSchema } from './post.schema';
 import { postReducer } from './post.reducer';
@@ -293,9 +293,9 @@ export class Post extends Entity(postSchema, postReducer) {
 4. **Computed Properties**: Use getters for derived state
 </Callout>
 
-## Step 4: Set Up the Repository
+## Set Up the Repository
 
-```typescript title="post.repository.ts"
+```typescript title="postRepository.ts"
 import { createRepository } from 'ventyd';
 import type { Adapter } from 'ventyd';
 import { Post } from './post.entity';
@@ -327,8 +327,8 @@ export const postRepository = createRepository(Post, {
 Let's walk through a complete workflow:
 
 ```typescript title="example.ts"
-import { Post } from './post.entity';
-import { postRepository } from './post.repository';
+import { Post } from './Post';
+import { postRepository } from './postRepository';
 
 async function blogWorkflow() {
   console.log("📝 Creating a new blog post...\n");
@@ -404,14 +404,7 @@ async function blogWorkflow() {
   await postRepository.commit(post);
   console.log(`💾 Saved ${post.version} events to storage\n`);
 
-  // 11. View event history
-  console.log("📜 Event History:");
-  post.events.forEach((event, i) => {
-    console.log(`   ${i + 1}. ${event.eventName}`);
-  });
-  console.log();
-
-  // 12. Retrieve from storage
+  // 11. Retrieve from storage
   const retrieved = await postRepository.findOne({
     entityId: post.entityId
   });
@@ -420,7 +413,6 @@ async function blogWorkflow() {
     console.log("✅ Retrieved from storage:");
     console.log("   Title:", retrieved.title);
     console.log("   Is published:", retrieved.isPublished);
-    console.log("   Total events:", retrieved.version);
   }
 }
 
@@ -455,21 +447,9 @@ blogWorkflow();
 
 💾 Saved 6 events to storage
 
-📜 Event History:
-   1. post:created
-   2. post:content_updated
-   3. post:content_updated
-   4. post:published
-   5. post:unpublished
-   6. post:content_updated
-   7. post:published
-
-💾 Committed 7 event(s)
-
 ✅ Retrieved from storage:
    Title: Getting Started with Event Sourcing in TypeScript
    Is published: true
-   Total events: 7
 ```
 
 ## What You've Learned
@@ -480,7 +460,6 @@ Congratulations! You've built a complete event-sourced entity with:
 - ✅ **Business logic** - Rules that prevent invalid operations
 - ✅ **State management** - Pure reducers that handle events
 - ✅ **Audit trail** - Complete history of all changes
-- ✅ **Time travel** - Ability to reconstruct state from events
 
 ## Next Steps
 

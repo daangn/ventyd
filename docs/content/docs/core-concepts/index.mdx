@@ -1,11 +1,7 @@
 ---
-title: Core Concepts
+title: Overview
 description: Understanding the fundamental building blocks of Ventyd
 ---
-
-# Core Concepts
-
-Ventyd is built around several key concepts that work together to enable event sourcing in TypeScript. Understanding these concepts will help you build robust, maintainable event-sourced applications.
 
 ## The Big Picture
 
@@ -16,12 +12,12 @@ Ventyd is built around several key concepts that work together to enable event s
        │
        ▼
 ┌─────────────┐
-│  Reducer    │  ← Computes state from events
+│   Reducer   │  ← Computes state from events
 └──────┬──────┘
        │
        ▼
 ┌─────────────┐
-│   State     │  ← Current state of entity
+│    State    │  ← Current state of entity
 └──────┬──────┘
        │
        ▼

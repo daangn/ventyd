@@ -9,7 +9,7 @@ import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
 First, let's define what events can happen to a user and what state they have.
 
-```typescript title="user.schema.ts"
+```typescript title="User.schema.ts"
 import { defineSchema } from 'ventyd';
 import { valibot, v } from 'ventyd/valibot';
 
@@ -54,7 +54,7 @@ Ventyd automatically adds the entity name as a prefix to event names. So `create
 
 The reducer is a function that takes the previous state and an event, and returns the new state.
 
-```typescript title="user.reducer.ts"
+```typescript title="User.reducer.ts"
 import { defineReducer } from 'ventyd';
 import { userSchema } from './user.schema';
 
@@ -103,7 +103,7 @@ Reducers are **pure functions** - they always produce the same output for the sa
 
 Now let's add business logic to our user entity.
 
-```typescript title="user.entity.ts"
+```typescript title="User.ts"
 import { Entity, mutation } from 'ventyd';
 import { userSchema } from './user.schema';
 import { userReducer } from './user.reducer';
@@ -182,7 +182,7 @@ export const userRepository = createRepository(User, {
 The in-memory adapter is great for development and testing, but **don't use it in production**! Data is lost when the process restarts. See [Storage Adapters](/docs/storage) for production options.
 </Callout>
 
-## Use Your Entity!
+## Use Your Entity
 
 Now you can create and manipulate users:
 
@@ -220,7 +220,6 @@ async function main() {
   if (retrieved) {
     console.log("Retrieved user:", retrieved.name);
     console.log("Bio:", retrieved.bio);
-    console.log("Total events:", retrieved.version); // Version = number of events
   }
 }
 
@@ -235,7 +234,6 @@ Name: Alice
 ✅ User saved!
 Retrieved user: Alice
 Bio: Software engineer and TypeScript enthusiast
-Total events: 2
 ```
 
 ## What Just Happened?
