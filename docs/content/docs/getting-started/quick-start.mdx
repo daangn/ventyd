@@ -5,17 +5,7 @@ description: Build your first event-sourced entity in 5 minutes
 
 import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
-# Quick Start
-
-This guide will walk you through creating your first event-sourced entity with Ventyd. We'll build a simple **User** entity that can be created and updated.
-
-<Callout type="info">
-**Prerequisites**
-
-Make sure you've [installed Ventyd](/docs/getting-started/installation) and chosen a validation library before starting this guide.
-</Callout>
-
-## Step 1: Define Your Schema
+## Define Your Schema
 
 First, let's define what events can happen to a user and what state they have.
 
@@ -60,7 +50,7 @@ export const userSchema = defineSchema("user", {
 Ventyd automatically adds the entity name as a prefix to event names. So `created` becomes `user:created`, and `profile_updated` becomes `user:profile_updated`.
 </Callout>
 
-## Step 2: Create a Reducer
+## Create a Reducer
 
 The reducer is a function that takes the previous state and an event, and returns the new state.
 
@@ -109,7 +99,7 @@ Reducers are **pure functions** - they always produce the same output for the sa
 - Use event metadata like `event.eventCreatedAt` for timestamps
 </Callout>
 
-## Step 3: Create Your Entity Class
+## Create Your Entity Class
 
 Now let's add business logic to our user entity.
 
@@ -155,7 +145,7 @@ The `mutation()` helper creates type-safe mutation methods that:
 - Provide access to `this` for business logic
 - Give you a `dispatch` function to emit events
 
-## Step 4: Set Up a Repository
+## Set Up a Repository
 
 The repository handles saving and loading entities from your database.
 
@@ -192,7 +182,7 @@ export const userRepository = createRepository(User, {
 The in-memory adapter is great for development and testing, but **don't use it in production**! Data is lost when the process restarts. See [Storage Adapters](/docs/storage) for production options.
 </Callout>
 
-## Step 5: Use Your Entity!
+## Use Your Entity!
 
 Now you can create and manipulate users:
 
@@ -257,16 +247,6 @@ Let's trace what happened under the hood:
 3. **userRepository.commit()** saved both events to storage
 4. **userRepository.findOne()** loaded events and replayed them through the reducer to rebuild state
 
-The beauty of event sourcing: you have a complete audit trail!
-
-```typescript
-// You can see all events
-console.log(user.events);
-// [
-//   { eventName: 'user:created', body: { email: '...', name: 'Alice' } },
-//   { eventName: 'user:profile_updated', body: { bio: '...' } }
-// ]
-```
 
 ## Next Steps
 

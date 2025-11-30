@@ -34,6 +34,18 @@ Traditional applications only store the current state of your data. Ventyd takes
   />
 </Cards>
 
+
+## How It Works
+
+Ventyd follows a simple pattern:
+
+1. **Define your schema** - Describe your events and state using a validation library
+2. **Create a reducer** - Define how events transform your state
+3. **Build your entity** - Add business logic as methods
+4. **Set up storage** - Connect to your database with an adapter
+5. **Use it!** - Create, update, and query your entities
+
+
 ## Quick Example
 
 Here's a complete example of an event-sourced User entity:
