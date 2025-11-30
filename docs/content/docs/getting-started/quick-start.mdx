@@ -3,6 +3,8 @@ title: Quick Start
 description: Build your first event-sourced entity in 5 minutes
 ---
 
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
+
 # Quick Start
 
 This guide will walk you through creating your first event-sourced entity with Ventyd. We'll build a simple **User** entity that can be created and updated.
@@ -295,7 +297,9 @@ Congratulations! You've built your first event-sourced entity. Here's what to ex
 
 ## Troubleshooting
 
-### "Type error in reducer"
+<Accordions type="single">
+
+<Accordion title='"Type error in reducer"'>
 
 Make sure your reducer handles all event types and returns the correct state shape:
 
@@ -309,7 +313,9 @@ case "user:created":
   return { email: event.body.email, name: event.body.name };
 ```
 
-### "Cannot read property of undefined"
+</Accordion>
+
+<Accordion title='"Cannot read property of undefined"'>
 
 You might be accessing a property before the entity is created. Always check the entity exists:
 
@@ -322,7 +328,9 @@ if (!user) {
 console.log(user.email); // Safe
 ```
 
-### "Validation error"
+</Accordion>
+
+<Accordion title='"Validation error"'>
 
 Check that your event data matches the schema:
 
@@ -337,3 +345,7 @@ User.create({
   body: { email: "test@example.com", name: "Test User" }
 });
 ```
+
+</Accordion>
+
+</Accordions>
