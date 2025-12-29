@@ -1,0 +1,192 @@
+---
+title: Plugins
+description: Extend Ventyd with side effects
+---
+
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
+
+## `Plugin` Interface
+
+Plugins let you respond to committed events with side effects like analytics, logging, and notifications.
+
+```typescript
+interface Plugin {
+  onCommitted({
+    entityName: string;
+    entityId: string;
+    events: Event[];
+    state: any;
+  }): Promise<void>;
+}
+```
+
+```typescript
+import type { Plugin } from 'ventyd';
+
+const myPlugin: Plugin = {
+  // ...
+}
+```
+
+## How to Use
+
+Add plugins when creating a repository:
+
+```typescript
+const repository = createRepository(User, {
+  adapter,
+  plugins: [analyticsPlugin, auditPlugin]
+});
+```
+
+Plugins run **after** events are safely persisted to the database.
+
+## Examples
+
+Here are common plugin patterns you can use as starting points:
+
+<Accordions>
+  <Accordion title="Example: Analytics">
+    Track user behavior:
+
+    ```typescript
+    const analyticsPlugin: Plugin = {
+      async onCommitted({ entityName, events }) {
+        for (const event of events) {
+          await analytics.track({
+            event: event.eventName,
+            properties: event.body,
+            timestamp: event.eventCreatedAt
+          });
+        }
+      }
+    };
+    ```
+  </Accordion>
+
+  <Accordion title="Example: Audit Logging">
+    Record all changes for compliance:
+
+    ```typescript
+    const auditPlugin: Plugin = {
+      async onCommitted({ entityName, entityId, events }) {
+        await auditLog.record({
+          entity: `${entityName}:${entityId}`,
+          changes: events.length,
+          timestamp: new Date()
+        });
+      }
+    };
+    ```
+  </Accordion>
+
+  <Accordion title="Example: Webhooks">
+    Notify external services:
+
+    ```typescript
+    const webhookPlugin: Plugin = {
+      async onCommitted({ entityName, entityId, events, state }) {
+        await fetch('https://api.example.com/webhook', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            entity: entityName,
+            id: entityId,
+            events: events.map(e => e.eventName),
+            state
+          })
+        });
+      }
+    };
+    ```
+  </Accordion>
+
+  <Accordion title="Example: Search Index">
+    Keep search synchronized:
+
+    ```typescript
+    const searchPlugin: Plugin = {
+      async onCommitted({ entityName, entityId, state }) {
+        await searchEngine.index({
+          id: `${entityName}:${entityId}`,
+          type: entityName,
+          data: state
+        });
+      }
+    };
+    ```
+  </Accordion>
+
+  <Accordion title="Example: Email Notifications">
+    Send emails based on events:
+
+    ```typescript
+    const emailPlugin: Plugin = {
+      async onCommitted({ events, state }) {
+        for (const event of events) {
+          if (event.eventName === 'user:created') {
+            await email.send({
+              to: state.email,
+              template: 'welcome',
+              data: { name: state.name }
+            });
+          }
+        }
+      }
+    };
+    ```
+  </Accordion>
+</Accordions>
+
+## Error Handling
+
+Handle errors gracefully with `onPluginError`:
+
+```typescript
+const repository = createRepository(User, {
+  adapter,
+  plugins: [myPlugin],
+  onPluginError: (error, plugin) => {
+    console.error('Plugin failed:', error);
+    // Don't throw - let other plugins continue
+  }
+});
+```
+
+## Best Practices
+
+### ✅ Do
+
+- Handle errors gracefully (try/catch)
+- Make operations idempotent
+- Keep plugins fast (queue heavy work)
+- Use provided data only
+
+### ❌ Don't
+
+- Don't throw errors
+- Don't load other entities
+- Don't perform heavy synchronous work
+- Don't mutate shared state
+
+## Creating Custom Plugins
+
+```typescript
+const customPlugin: Plugin = {
+  async onCommitted({ events }) {
+    try {
+      // Your logic here
+      await myService.process(events);
+    } catch (error) {
+      logger.error('Processing failed', error);
+      // Don't throw - handle gracefully
+    }
+  }
+};
+```
+
+Make sure to:
+- Return a Promise
+- Handle all errors
+- Avoid blocking operations
+- Keep it simple and focused

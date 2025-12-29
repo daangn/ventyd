@@ -31,7 +31,7 @@ $ yarn add ventyd
 Ventyd is built on the [Standard Schema](https://standardschema.dev) specification. Choose your preferred validation library:
 
 ```bash
-# Valibot (recommended)
+# Valibot
 $ yarn add valibot
 
 # Zod
@@ -373,7 +373,7 @@ Any library that implements the Standard Schema specification works with Ventyd:
 
 **Note:** Official integrations provide automatic event namespacing and better ergonomics. Any Standard Schema-compliant library can also be used directly with the `standard()` provider.
 
-### Using Valibot (Recommended)
+### Using Valibot
 
 Ventyd provides an official helper for Valibot that automatically handles event namespacing and metadata:
 

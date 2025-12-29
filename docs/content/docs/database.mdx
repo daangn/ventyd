@@ -1,0 +1,97 @@
+---
+title: Database Adapter
+description: Connect to your database
+---
+
+import { Database, Search, ShieldAlert, Lock } from 'lucide-react';
+
+## `Adapter` Interface
+
+Connect Ventyd to any database by implementing a simple adapter interface.
+
+```typescript
+interface Adapter {
+  // Load all events for an entity
+  getEventsByEntityId(params: {
+    entityName: string;
+    entityId: string;
+  }): Promise<Event[]>;
+
+  // Save new events atomically
+  commitEvents(params: {
+    events: Event[];
+  }): Promise<void>;
+}
+```
+
+```typescript
+import type { Adapter } from 'ventyd';
+
+const myAdapter: Adapter = {
+  // ...
+}
+```
+
+## Implementation Requirements
+
+Make sure your adapter follows these guidelines for reliable event sourcing:
+
+### `getEventsByEntityId()`
+- Return events in **chronological order** (oldest first)
+- Return empty array if entity doesn't exist
+
+### `commitEvents()`
+- Save all events **atomically** (all or nothing)
+- Handle empty array gracefully
+- Make it **idempotent** if possible (use unique constraints on eventId)
+
+## Example Implementation
+
+Here's a simple adapter using a generic database client:
+
+```typescript
+import { createRepository } from 'ventyd';
+import type { Adapter } from 'ventyd';
+
+const adapter: Adapter = {
+  async getEventsByEntityId({ entityName, entityId }) {
+    // Load events from your database
+    return await db.query(
+      'SELECT * FROM events WHERE entity_name = ? AND entity_id = ? ORDER BY created_at ASC',
+      [entityName, entityId]
+    );
+  },
+
+  async commitEvents({ events }) {
+    if (events.length === 0) return;
+
+    // Save events atomically to your database
+    await db.insertMany(events);
+  }
+};
+
+const repository = createRepository(User, { adapter });
+```
+
+## Best Practices
+
+<Cards>
+  <Card title="Connection Pooling" icon={<Database />}>
+    Always use connection pooling for production databases to handle concurrent requests efficiently.
+  </Card>
+  <Card title="Create Indexes" icon={<Search />}>
+    Index on `(entityName, entityId)` for fast event lookups.
+  </Card>
+  <Card title="Handle Errors" icon={<ShieldAlert />}>
+    Catch duplicate key errors to make operations idempotent.
+  </Card>
+  <Card title="Use Transactions" icon={<Lock />}>
+    Use database transactions in `commitEvents()` to ensure atomicity.
+  </Card>
+</Cards>
+
+---
+
+<Callout type="info">
+Implement the adapter for your database of choice (MongoDB, PostgreSQL, MySQL, Redis, etc.) and you're ready to go!
+</Callout>

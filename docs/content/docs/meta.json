@@ -2,11 +2,24 @@
   "title": "Documentation",
   "pages": [
     "index",
-    "getting-started",
+    "---Getting Started---",
+    "installation",
+    "quick-start",
+
+    "---Learn---",
     "core-concepts",
-    "validation",
-    "storage",
+
+    "---Write---",
+    "schema",
+    "database",
     "plugins",
-    "guides"
+
+    "---Production Guide---",
+    "event-naming",
+    "event-granularity",
+    "error-handling",
+    "testing",
+    "performance",
+    "event-versioning"
   ]
 }

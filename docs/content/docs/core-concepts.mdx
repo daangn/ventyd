@@ -1,0 +1,154 @@
+---
+title: Core Concepts
+description: Understanding Ventyd's building blocks
+---
+
+import { Calendar, Cog, Box, Database, Lock, Sparkles, CheckCircle, GitBranch } from 'lucide-react';
+
+## What is Event Sourcing?
+
+Ventyd uses **Event Sourcing** - a pattern where you store all changes as events instead of just the current state. Instead of updating database rows, you store every change as an immutable event:
+
+```typescript
+// Traditional approach: UPDATE users SET name = 'Alice' WHERE id = 1
+
+// Event sourcing approach:
+{
+  eventName: "user:name_updated",
+  body: { name: "Alice" },
+  timestamp: "2024-01-15T10:30:00Z"
+}
+```
+
+**Benefits:**
+- Complete audit trail
+- Time travel (replay events to any point)
+- Easy debugging (see exactly what happened)
+- No data loss (every change is recorded)
+
+## The Four Building Blocks
+
+<Cards>
+  <Card title="Events" icon={<Calendar />}>
+    Immutable facts that happened
+
+    ```typescript
+    {
+      eventId: "evt_123",
+      eventName: "user:created",
+      eventCreatedAt: "2024-01-15T10:30:00Z",
+      body: { email: "alice@example.com" }
+    }
+    ```
+  </Card>
+
+  <Card title="Reducer" icon={<Cog />}>
+    Pure function that builds state from events
+
+    ```typescript
+    const reducer = (prevState, event) => {
+      switch (event.eventName) {
+        case "user:created":
+          return { email: event.body.email };
+        case "user:name_updated":
+          return { ...prevState, name: event.body.name };
+        default:
+          return prevState;
+      }
+    };
+    ```
+  </Card>
+
+  <Card title="Entity" icon={<Box />}>
+    Domain object with business logic
+
+    ```typescript
+    class User extends Entity(schema, reducer) {
+      get email() {
+        return this.state.email;
+      }
+
+      updateName = mutation(this, (dispatch, name: string) => {
+        if (!name) throw new Error("Name required");
+        dispatch("user:name_updated", { name });
+      });
+    }
+    ```
+  </Card>
+
+  <Card title="Repository" icon={<Database />}>
+    Saves and loads entities
+
+    ```typescript
+    const userRepository = createRepository(User, { adapter });
+
+    // Create and save
+    const user = User.create({ body: { email: "alice@example.com" } });
+    await userRepository.commit(user);
+
+    // Load later
+    const loaded = await userRepository.findOne({ entityId: user.entityId });
+    ```
+  </Card>
+</Cards>
+
+## How It Works
+
+```
+1. User calls mutation  →  2. Mutation dispatches event
+                ↓
+4. Reducer builds state  ←  3. Event is validated
+                ↓
+5. Repository saves event to database
+```
+
+When you load an entity, Ventyd:
+1. Loads all events from database
+2. Replays them through the reducer
+3. Builds the current state
+
+## Example Flow
+
+Let's see how all the pieces work together in a complete example:
+
+```typescript
+// Create user
+const user = User.create({
+  body: { email: "alice@example.com", name: "Alice" }
+});
+
+// Update name
+user.updateName("Alice Cooper");
+
+// Save to database
+await userRepository.commit(user);
+
+// Later... load from database
+const loaded = await userRepository.findOne({ entityId: user.entityId });
+console.log(loaded.name); // "Alice Cooper"
+
+// See all events
+console.log(loaded.events);
+// [
+//   { eventName: "user:created", body: { email: "...", name: "Alice" } },
+//   { eventName: "user:name_updated", body: { name: "Alice Cooper" } }
+// ]
+```
+
+## Key Principles
+
+<Cards>
+  <Card title="Events are Immutable" icon={<Lock />}>
+    Once created, events never change. This enables time travel and reliable audit trails.
+  </Card>
+  <Card title="Reducers are Pure" icon={<Sparkles />}>
+    Same events always produce same state. No side effects, no randomness, no API calls.
+  </Card>
+  <Card title="Mutations Validate First" icon={<CheckCircle />}>
+    Always validate before dispatching events. Never dispatch invalid events.
+  </Card>
+  <Card title="State is Derived" icon={<GitBranch />}>
+    State is computed from events. You can always rebuild it by replaying events.
+  </Card>
+</Cards>
+

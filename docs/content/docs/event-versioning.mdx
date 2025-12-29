@@ -1,0 +1,255 @@
+---
+title: Event Versioning Strategy
+description: Handle event schema evolution and migrations
+---
+
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
+
+## Overview
+
+Event schemas evolve over time. This guide covers strategies for managing event versioning, schema migrations, and backward compatibility.
+
+## The Versioning Challenge
+
+Once an event is in your event store, you can't change its structure. You need strategies to handle evolution without breaking existing events.
+
+```typescript
+// Old events still exist:
+{ eventName: "user:created", body: { email: "..." } }
+
+// But new code expects:
+{ eventName: "user:created", body: { email: "...", name: "..." } }
+```
+
+## Versioning Strategies
+
+<Accordions>
+  <Accordion title="Strategy 1: Event Name Versioning">
+    Create new event names for schema changes.
+
+    ```typescript
+    const userSchema = defineSchema("user", {
+      schema: valibot({
+        event: {
+          // V1: Original
+          created: v.object({
+            email: v.string()
+          }),
+
+          // V2: Added name field
+          created_v2: v.object({
+            email: v.string(),
+            name: v.string()
+          })
+        },
+        state: v.object({
+          email: v.string(),
+          name: v.optional(v.string())  // Optional for backwards compatibility
+        })
+      }),
+      initialEventName: "user:created_v2"  // Use latest version
+    });
+    ```
+
+    **Reducer handles both versions:**
+    ```typescript
+    const reducer = (state, event) => {
+      switch (event.eventName) {
+        case "user:created":
+          return { email: event.body.email, name: undefined };
+        case "user:created_v2":
+          return { email: event.body.email, name: event.body.name };
+        default:
+          return state;
+      }
+    };
+    ```
+
+    **Pros:**
+    - Simple and explicit
+    - Easy to understand
+    - No data transformation needed
+
+    **Cons:**
+    - Event name proliferation
+    - Reducer becomes complex with many versions
+  </Accordion>
+
+  <Accordion title="Strategy 2: Upcasting">
+    Transform old events to new format when loading.
+
+    ```typescript
+    interface EventUpcast {
+      from: string;
+      to: string;
+      transform: (body: any) => any;
+    }
+
+    const upcasts: EventUpcast[] = [
+      {
+        from: "user:created",
+        to: "user:created",
+        transform: (body) => ({
+          ...body,
+          name: body.name || "Unknown"  // Add missing field
+        })
+      }
+    ];
+
+    // Apply upcasts when loading events
+    function applyUpcasts(events: Event[]): Event[] {
+      return events.map(event => {
+        const upcast = upcasts.find(u => u.from === event.eventName);
+        if (upcast) {
+          return {
+            ...event,
+            body: upcast.transform(event.body)
+          };
+        }
+        return event;
+      });
+    }
+    ```
+
+    **Pros:**
+    - Single event name
+    - Simpler reducer
+    - Centralized transformation logic
+
+    **Cons:**
+    - Performance overhead (transformation on every load)
+    - Can be complex with many migrations
+  </Accordion>
+
+  <Accordion title="Strategy 3: Hybrid Approach">
+    Combine versioning with optional upcasting.
+
+    ```typescript
+    // Use event versions for major changes
+    const schema = defineSchema("user", {
+      schema: valibot({
+        event: {
+          created: v.object({ email: v.string() }),
+          created_v2: v.object({ email: v.string(), name: v.string() })
+        },
+        state: v.object({
+          email: v.string(),
+          name: v.string()
+        })
+      }),
+      initialEventName: "user:created_v2"
+    });
+
+    // Use upcasting for minor changes within versions
+    const upcasts = [
+      {
+        from: "user:created",
+        transform: (body) => ({ ...body, name: "Unknown" })
+      }
+    ];
+    ```
+
+    **When to use:**
+    - Major breaking changes: New event version
+    - Minor additions: Upcast
+    - Critical migrations: Batch transform old events
+  </Accordion>
+</Accordions>
+
+## Migration Scenarios
+
+### Adding Optional Fields
+
+```typescript
+// Old: email only
+// New: email + optional name
+
+// ✅ Make field optional in state
+state: v.object({
+  email: v.string(),
+  name: v.optional(v.string())
+})
+
+// ✅ Reducer provides default
+case "user:created":
+  return { email: body.email, name: body.name || undefined };
+```
+
+### Removing Fields
+
+```typescript
+// Old: email + deprecated field
+// New: email only
+
+// ✅ Keep field optional for old events
+state: v.object({
+  email: v.string(),
+  deprecatedField: v.optional(v.string())
+})
+
+// ✅ Don't include in new events
+event: {
+  created: v.object({ email: v.string() })  // No deprecated field
+}
+```
+
+### Renaming Fields
+
+```typescript
+// Old: "userName"
+// New: "name"
+
+// Use upcast to transform
+const upcast = {
+  from: "user:created",
+  transform: (body) => ({
+    ...body,
+    name: body.userName,  // Rename
+    userName: undefined   // Remove old
+  })
+};
+```
+
+## Best Practices
+
+- **Version only when necessary** - Don't version for every small change
+- **Document migrations** - Keep a changelog of schema changes
+- **Test with old data** - Ensure reducers handle all event versions
+- **Monitor performance** - Upcasting can impact load times
+- **Plan for rollback** - New versions should be backwards compatible
+
+## When to Migrate
+
+Consider migrating when:
+- Event versions proliferate (>3 versions)
+- Performance degrades from upcasts
+- Old events are no longer accessed
+- Major refactoring is needed
+
+## Testing
+
+```typescript
+describe('Event versioning', () => {
+  it('handles old event format', () => {
+    const oldEvent = {
+      eventName: 'user:created',
+      body: { email: 'test@example.com' }
+    };
+
+    const state = reducer(undefined, oldEvent);
+    expect(state.email).toBe('test@example.com');
+    expect(state.name).toBe(undefined);  // Missing in old format
+  });
+
+  it('handles new event format', () => {
+    const newEvent = {
+      eventName: 'user:created_v2',
+      body: { email: 'test@example.com', name: 'Test' }
+    };
+
+    const state = reducer(undefined, newEvent);
+    expect(state.email).toBe('test@example.com');
+    expect(state.name).toBe('Test');
+  });
+});
+```

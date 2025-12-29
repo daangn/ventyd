@@ -1,0 +1,174 @@
+---
+title: Schema
+description: Define events and state with validation
+---
+
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
+
+## Supported Libraries
+
+Ventyd uses [Standard Schema](https://standardschema.dev), so you can use any compatible validation library.
+
+<Accordions>
+  <Accordion title="Valibot">
+    ```bash tab="pnpm"
+    pnpm add valibot
+    ```
+
+    ```bash tab="yarn"
+    yarn add valibot
+    ```
+
+    ```bash tab="npm"
+    npm install valibot
+    ```
+
+    ```typescript
+    import { defineSchema } from 'ventyd';
+    import { valibot, v } from 'ventyd/valibot';
+
+    const userSchema = defineSchema("user", {
+      schema: valibot({
+        event: {
+          created: v.object({
+            email: v.pipe(v.string(), v.email()),
+            name: v.string()
+          })
+        },
+        state: v.object({
+          email: v.string(),
+          name: v.string()
+        })
+      }),
+      initialEventName: "user:created"
+    });
+    ```
+  </Accordion>
+  <Accordion title="Zod">
+    ```bash tab="pnpm"
+    pnpm add zod
+    ```
+
+    ```bash tab="yarn"
+    yarn add zod
+    ```
+
+    ```bash tab="npm"
+    npm install zod
+    ```
+
+    ```typescript
+    import { defineSchema } from 'ventyd';
+    import { zod, z } from 'ventyd/zod';
+
+    const userSchema = defineSchema("user", {
+      schema: zod({
+        event: {
+          created: z.object({
+            email: z.string().email(),
+            name: z.string()
+          })
+        },
+        state: z.object({
+          email: z.string(),
+          name: z.string()
+        })
+      }),
+      initialEventName: "user:created"
+    });
+    ```
+  </Accordion>
+  <Accordion title="TypeBox">
+    ```bash tab="pnpm"
+    pnpm add @sinclair/typebox
+    ```
+
+    ```bash tab="yarn"
+    yarn add @sinclair/typebox
+    ```
+
+    ```bash tab="npm"
+    npm install @sinclair/typebox
+    ```
+
+    ```typescript
+    import { defineSchema } from 'ventyd';
+    import { typebox, Type } from 'ventyd/typebox';
+
+    const userSchema = defineSchema("user", {
+      schema: typebox({
+        event: {
+          created: Type.Object({
+            email: Type.String({ format: 'email' }),
+            name: Type.String()
+          })
+        },
+        state: Type.Object({
+          email: Type.String(),
+          name: Type.String()
+        })
+      }),
+      initialEventName: "user:created"
+    });
+    ```
+  </Accordion>
+  <Accordion title="ArkType">
+    ```bash tab="pnpm"
+    pnpm add arktype
+    ```
+
+    ```bash tab="yarn"
+    yarn add arktype
+    ```
+
+    ```bash tab="npm"
+    npm install arktype
+    ```
+
+    ```typescript
+    import { defineSchema } from 'ventyd';
+    import { arktype, type } from 'ventyd/arktype';
+
+    const userSchema = defineSchema("user", {
+      schema: arktype({
+        event: {
+          created: type({
+            email: "string.email",
+            name: "string"
+          })
+        },
+        state: type({
+          email: "string",
+          name: "string"
+        })
+      }),
+      initialEventName: "user:created"
+    });
+    ```
+  </Accordion>
+</Accordions>
+
+
+## Which One Should I Choose?
+
+- **Valibot**: Smallest bundle size, modern and modular
+- **Zod**: Most popular, largest ecosystem
+- **TypeBox**: JSON Schema support, great for APIs
+- **ArkType**: Fastest validation, elegant syntax
+
+Pick any - they all work great with Ventyd!
+
+## Custom Event Seperator
+
+By default, events are named `entity:event` (e.g., `user:created`). You can customize this:
+
+```typescript
+const schema = defineSchema("user", {
+  schema: valibot({
+    event: { created: v.object({ ... }) },
+    state: v.object({ ... }),
+    namespaceSeparator: "/" // Use "/" instead of ":"
+  }),
+  initialEventName: "user/created" // Match the separator
+});
+```

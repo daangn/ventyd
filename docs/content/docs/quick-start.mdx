@@ -179,7 +179,7 @@ export const userRepository = createRepository(User, {
 <Callout type="warn">
 **In-Memory Adapter**
 
-The in-memory adapter is great for development and testing, but **don't use it in production**! Data is lost when the process restarts. See [Storage Adapters](/docs/storage) for production options.
+The in-memory adapter is great for development and testing, but **don't use it in production**! Data is lost when the process restarts. See [Database](/docs/database) for production options.
 </Callout>
 
 ## Use Your Entity
@@ -248,82 +248,22 @@ Let's trace what happened under the hood:
 
 ## Next Steps
 
-Congratulations! You've built your first event-sourced entity. Here's what to explore next:
+Congratulations! You've built your first event-sourced entity.
 
 <Cards>
   <Card
-    title="Your First Entity"
-    description="Build a more complete example with deletions and validations"
-    href="/docs/getting-started/your-first-entity"
-  />
-  <Card
     title="Core Concepts"
-    description="Deep dive into events, reducers, and CQRS"
+    description="Learn event sourcing"
     href="/docs/core-concepts"
   />
   <Card
-    title="Storage Adapters"
-    description="Connect to a real database like MongoDB or PostgreSQL"
-    href="/docs/storage"
+    title="Schema"
+    description="Define your data"
+    href="/docs/schema"
   />
   <Card
-    title="Validation Libraries"
-    description="Try different validation libraries like Zod or TypeBox"
-    href="/docs/validation"
+    title="Database"
+    description="Connect your database"
+    href="/docs/database"
   />
 </Cards>
-
-## Troubleshooting
-
-<Accordions type="single">
-
-<Accordion title='"Type error in reducer"'>
-
-Make sure your reducer handles all event types and returns the correct state shape:
-
-```typescript
-// ❌ Wrong - missing return
-case "user:created":
-  { email: event.body.email } // Missing return!
-
-// ✅ Correct
-case "user:created":
-  return { email: event.body.email, name: event.body.name };
-```
-
-</Accordion>
-
-<Accordion title='"Cannot read property of undefined"'>
-
-You might be accessing a property before the entity is created. Always check the entity exists:
-
-```typescript
-const user = await userRepository.findOne({ entityId: "xyz" });
-if (!user) {
-  console.log("User not found");
-  return;
-}
-console.log(user.email); // Safe
-```
-
-</Accordion>
-
-<Accordion title='"Validation error"'>
-
-Check that your event data matches the schema:
-
-```typescript
-// ❌ Wrong - missing required field
-User.create({
-  body: { email: "test@example.com" } // Missing 'name'
-});
-
-// ✅ Correct
-User.create({
-  body: { email: "test@example.com", name: "Test User" }
-});
-```
-
-</Accordion>
-
-</Accordions>
