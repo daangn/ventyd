@@ -1,231 +1,77 @@
 ---
-title: Testing Guide
-description: Write comprehensive tests for reducers, mutations, and entities
+title: Testing
+description: Write comprehensive tests for your entities through their public interface
 ---
 
 ## Overview
 
-Testing event-sourced systems involves validating reducers, mutations, and entity state. This guide covers strategies and patterns for comprehensive testing.
+Test your entities by calling their public methods and verifying behavior, not by testing implementation details like reducers. This guide focuses on testing entities as black boxes through their interface.
 
-## Testing Reducers
+## Testing Entities
 
-Reducers are pure functions, making them easy to test in isolation.
+Test entities by creating them, calling mutations, and verifying the resulting state.
 
-### Basic Reducer Tests
-
-```typescript
-import { describe, it, expect } from 'vitest';
-import { userReducer } from './user.reducer';
-
-describe('User Reducer', () => {
-  describe('user:created event', () => {
-    it('sets initial state from created event', () => {
-      const event = {
-        eventName: 'user:created',
-        body: {
-          email: 'john@example.com',
-          nickname: 'john'
-        },
-        eventCreatedAt: '2024-01-01T00:00:00Z'
-      };
-
-      const state = userReducer(undefined as any, event as any);
-
-      expect(state).toEqual({
-        email: 'john@example.com',
-        nickname: 'john',
-        bio: undefined,
-        deletedAt: null
-      });
-    });
-  });
-
-  describe('user:profile_updated event', () => {
-    it('updates profile fields', () => {
-      const prevState = {
-        email: 'john@example.com',
-        nickname: 'john',
-        bio: undefined,
-        deletedAt: null
-      };
-
-      const event = {
-        eventName: 'user:profile_updated',
-        body: {
-          nickname: 'john_doe',
-          bio: 'Software Engineer'
-        },
-        eventCreatedAt: '2024-01-02T00:00:00Z'
-      };
-
-      const state = userReducer(prevState, event as any);
-
-      expect(state).toEqual({
-        email: 'john@example.com',
-        nickname: 'john_doe',
-        bio: 'Software Engineer',
-        deletedAt: null
-      });
-    });
-
-    it('preserves unchanged fields', () => {
-      const prevState = {
-        email: 'john@example.com',
-        nickname: 'john',
-        bio: 'Developer',
-        deletedAt: null
-      };
-
-      const event = {
-        eventName: 'user:profile_updated',
-        body: {
-          bio: 'Senior Developer'
-          // nickname not included
-        },
-        eventCreatedAt: '2024-01-02T00:00:00Z'
-      };
-
-      const state = userReducer(prevState, event as any);
-
-      expect(state.nickname).toBe('john'); // Unchanged
-      expect(state.bio).toBe('Senior Developer');
-    });
-  });
-
-  describe('user:deleted event', () => {
-    it('marks user as deleted', () => {
-      const prevState = {
-        email: 'john@example.com',
-        nickname: 'john',
-        bio: undefined,
-        deletedAt: null
-      };
-
-      const event = {
-        eventName: 'user:deleted',
-        body: { reason: 'User requested deletion' },
-        eventCreatedAt: '2024-01-03T00:00:00Z'
-      };
-
-      const state = userReducer(prevState, event as any);
-
-      expect(state.deletedAt).not.toBeNull();
-      expect(state.email).toBe('john@example.com'); // Unchanged
-    });
-  });
-
-  describe('unknown events', () => {
-    it('returns previous state for unknown events', () => {
-      const prevState = {
-        email: 'john@example.com',
-        nickname: 'john',
-        bio: undefined,
-        deletedAt: null
-      };
-
-      const event = {
-        eventName: 'user:unknown_event',
-        body: {},
-        eventCreatedAt: '2024-01-03T00:00:00Z'
-      };
-
-      const state = userReducer(prevState, event as any);
-
-      expect(state).toBe(prevState); // Same reference
-    });
-  });
-});
-```
-
-### Testing Event Sequences
-
-Test how multiple events transform state:
-
-```typescript
-describe('Event Sequences', () => {
-  it('replays full user lifecycle', () => {
-    // Create event
-    let state: any;
-    state = userReducer(undefined as any, {
-      eventName: 'user:created',
-      body: { email: 'john@example.com', nickname: 'john' },
-      eventCreatedAt: '2024-01-01T00:00:00Z'
-    } as any);
-
-    // Update profile
-    state = userReducer(state, {
-      eventName: 'user:profile_updated',
-      body: { bio: 'Software Engineer' },
-      eventCreatedAt: '2024-01-02T00:00:00Z'
-    } as any);
-
-    // Change email
-    state = userReducer(state, {
-      eventName: 'user:email_changed',
-      body: { email: 'john.doe@example.com' },
-      eventCreatedAt: '2024-01-03T00:00:00Z'
-    } as any);
-
-    // Delete
-    state = userReducer(state, {
-      eventName: 'user:deleted',
-      body: {},
-      eventCreatedAt: '2024-01-04T00:00:00Z'
-    } as any);
-
-    // Restore
-    state = userReducer(state, {
-      eventName: 'user:restored',
-      body: {},
-      eventCreatedAt: '2024-01-05T00:00:00Z'
-    } as any);
-
-    expect(state).toEqual({
-      email: 'john.doe@example.com',
-      nickname: 'john',
-      bio: 'Software Engineer',
-      deletedAt: null
-    });
-  });
-});
-```
-
-## Testing Mutations
-
-Test that mutations validate state and dispatch correct events.
-
-### Basic Mutation Tests
+### Basic Entity Tests
 
 ```typescript
 import { describe, it, expect } from 'vitest';
 
-describe('User Mutations', () => {
+describe('User Entity', () => {
+  describe('create', () => {
+    it('creates user with initial state', () => {
+      const user = User.create({
+        body: { email: 'john@example.com', nickname: 'john' }
+      });
+
+      expect(user.state.email).toBe('john@example.com');
+      expect(user.state.nickname).toBe('john');
+      expect(user.state.bio).toBeUndefined();
+      expect(user.state.isDeleted).toBe(false);
+    });
+
+    it('generates unique entity IDs', () => {
+      const user1 = User.create({
+        body: { email: 'john@example.com', nickname: 'john' }
+      });
+      const user2 = User.create({
+        body: { email: 'jane@example.com', nickname: 'jane' }
+      });
+
+      expect(user1.entityId).not.toBe(user2.entityId);
+    });
+  });
+
   describe('updateProfile', () => {
-    it('dispatches profile_updated event', () => {
+    it('updates profile fields', () => {
       const user = User.create({
         body: { email: 'john@example.com', nickname: 'john' }
       });
 
-      const dispatchedEvents: any[] = [];
-      const originalDispatch = user.dispatch;
-      user.dispatch = (name, body) => {
-        dispatchedEvents.push({ name, body });
-      };
+      user.updateProfile({ bio: 'Software Engineer' });
 
-      user.updateProfile({ bio: 'Engineer' });
-
-      expect(dispatchedEvents).toContainEqual({
-        name: 'user:profile_updated',
-        body: { bio: 'Engineer' }
-      });
+      expect(user.state.bio).toBe('Software Engineer');
+      expect(user.state.nickname).toBe('john'); // Unchanged
     });
 
-    it('validates before dispatching', () => {
+    it('updates multiple fields', () => {
       const user = User.create({
         body: { email: 'john@example.com', nickname: 'john' }
       });
 
-      // Make user deleted
+      user.updateProfile({
+        nickname: 'john_doe',
+        bio: 'Software Engineer'
+      });
+
+      expect(user.state.nickname).toBe('john_doe');
+      expect(user.state.bio).toBe('Software Engineer');
+    });
+
+    it('prevents updating deleted users', () => {
+      const user = User.create({
+        body: { email: 'john@example.com', nickname: 'john' }
+      });
+
       user.delete();
 
       expect(() => {
@@ -235,22 +81,14 @@ describe('User Mutations', () => {
   });
 
   describe('delete', () => {
-    it('dispatches deleted event', () => {
+    it('marks user as deleted', () => {
       const user = User.create({
         body: { email: 'john@example.com', nickname: 'john' }
       });
 
-      const dispatchedEvents: any[] = [];
-      user.dispatch = (name, body) => {
-        dispatchedEvents.push({ name, body });
-      };
-
       user.delete('User requested deletion');
 
-      expect(dispatchedEvents).toContainEqual({
-        name: 'user:deleted',
-        body: { reason: 'User requested deletion' }
-      });
+      expect(user.state.isDeleted).toBe(true);
     });
 
     it('prevents deleting already deleted user', () => {
@@ -267,21 +105,15 @@ describe('User Mutations', () => {
   });
 
   describe('restore', () => {
-    it('allows restoring deleted user', () => {
+    it('restores deleted user', () => {
       const user = User.create({
         body: { email: 'john@example.com', nickname: 'john' }
       });
 
       user.delete();
-
-      const dispatchedEvents: any[] = [];
-      user.dispatch = (name) => {
-        dispatchedEvents.push(name);
-      };
-
       user.restore();
 
-      expect(dispatchedEvents).toContain('user:restored');
+      expect(user.state.isDeleted).toBe(false);
     });
 
     it('prevents restoring non-deleted user', () => {
@@ -297,60 +129,122 @@ describe('User Mutations', () => {
 });
 ```
 
-## Testing Entity State
+### Testing Entity Lifecycle
 
-Test entity properties and computed state.
-
-### Entity Property Tests
+Test complete entity lifecycles with multiple operations:
 
 ```typescript
-describe('User Entity', () => {
-  describe('properties', () => {
-    it('exposes email property', () => {
-      const user = User.create({
-        body: { email: 'john@example.com', nickname: 'john' }
-      });
-
-      expect(user.email).toBe('john@example.com');
+describe('User Lifecycle', () => {
+  it('handles full user journey', () => {
+    // Create user
+    const user = User.create({
+      body: { email: 'john@example.com', nickname: 'john' }
     });
 
-    it('exposes computed isDeleted property', () => {
-      const user = User.create({
-        body: { email: 'john@example.com', nickname: 'john' }
-      });
+    expect(user.state.isDeleted).toBe(false);
 
-      expect(user.isDeleted).toBe(false);
+    // Update profile multiple times
+    user.updateProfile({ bio: 'Developer' });
+    user.updateProfile({ bio: 'Senior Developer' });
+    user.updateProfile({ nickname: 'john_doe' });
 
-      user.delete();
+    expect(user.state.nickname).toBe('john_doe');
+    expect(user.state.bio).toBe('Senior Developer');
 
-      expect(user.isDeleted).toBe(true);
+    // Delete user
+    user.delete();
+    expect(user.state.isDeleted).toBe(true);
+
+    // Restore user
+    user.restore();
+    expect(user.state.isDeleted).toBe(false);
+
+    // Verify all data preserved
+    expect(user.state.email).toBe('john@example.com');
+    expect(user.state.nickname).toBe('john_doe');
+    expect(user.state.bio).toBe('Senior Developer');
+  });
+});
+```
+
+### Testing Business Rules
+
+Test validation and business logic:
+
+```typescript
+describe('User Business Rules', () => {
+  describe('email validation', () => {
+    it('accepts valid email', () => {
+      expect(() => {
+        User.create({
+          body: { email: 'john@example.com', nickname: 'john' }
+        });
+      }).not.toThrow();
+    });
+
+    it('rejects invalid email', () => {
+      expect(() => {
+        User.create({
+          body: { email: 'invalid-email', nickname: 'john' }
+        });
+      }).toThrow('Invalid email format');
     });
   });
 
-  describe('entity ID', () => {
-    it('has unique entity ID', () => {
-      const user1 = User.create({
-        body: { email: 'john@example.com', nickname: 'john' }
-      });
-
-      const user2 = User.create({
-        body: { email: 'jane@example.com', nickname: 'jane' }
-      });
-
-      expect(user1.entityId).not.toBe(user2.entityId);
+  describe('nickname rules', () => {
+    it('rejects empty nickname', () => {
+      expect(() => {
+        User.create({
+          body: { email: 'john@example.com', nickname: '' }
+        });
+      }).toThrow('Nickname cannot be empty');
     });
 
-    it('preserves entity ID through operations', () => {
+    it('rejects nickname with special characters', () => {
       const user = User.create({
         body: { email: 'john@example.com', nickname: 'john' }
       });
 
-      const originalId = user.entityId;
-
-      user.updateProfile({ bio: 'Engineer' });
-
-      expect(user.entityId).toBe(originalId);
+      expect(() => {
+        user.updateProfile({ nickname: 'john@#$' });
+      }).toThrow('Nickname can only contain letters, numbers, and underscores');
     });
+  });
+});
+```
+
+### Testing Computed Properties
+
+Test getters and computed properties:
+
+```typescript
+describe('User Computed Properties', () => {
+  it('exposes computed properties', () => {
+    const user = User.create({
+      body: { email: 'john@example.com', nickname: 'john' }
+    });
+
+    // Test getters
+    expect(user.email).toBe('john@example.com');
+    expect(user.nickname).toBe('john');
+    expect(user.isDeleted).toBe(false);
+
+    user.delete();
+    expect(user.isDeleted).toBe(true);
+  });
+
+  it('preserves entity ID through operations', () => {
+    const user = User.create({
+      body: { email: 'john@example.com', nickname: 'john' }
+    });
+
+    const originalId = user.entityId;
+
+    user.updateProfile({ bio: 'Engineer' });
+    user.delete();
+    user.restore();
+
+    expect(user.entityId).toBe(originalId);
   });
 });
 ```
@@ -572,69 +466,52 @@ describe('User Repository With Plugins', () => {
 });
 ```
 
-## Snapshot Testing
+## Advanced: Property-Based Testing
 
-Use snapshots to verify event output.
-
-```typescript
-describe('User Events Snapshot', () => {
-  it('created event matches snapshot', () => {
-    const user = User.create({
-      body: { email: 'john@example.com', nickname: 'john' }
-    });
-
-    const dispatchedEvents: any[] = [];
-    user.dispatch = (name, body) => {
-      dispatchedEvents.push({
-        eventName: name,
-        body,
-        timestamp: 'TIMESTAMP_PLACEHOLDER'
-      });
-    };
-
-    expect(dispatchedEvents).toMatchSnapshot();
-  });
-});
-```
-
-## Property-Based Testing
-
-Test with generated inputs to find edge cases:
+Use property-based testing to find edge cases with generated inputs:
 
 ```typescript
 import fc from 'fast-check';
 
-describe('User with Property-Based Testing', () => {
-  it('always maintains valid state', () => {
+describe('User Property-Based Tests', () => {
+  it('always maintains valid state with any email', () => {
     fc.assert(
-      fc.property(fc.string({ minLength: 1 }), (email) => {
-        const user = User.create({
-          body: { email, nickname: 'user' }
-        });
+      fc.property(
+        fc.emailAddress(),
+        fc.string({ minLength: 1, maxLength: 20 }),
+        (email, nickname) => {
+          const user = User.create({
+            body: { email, nickname }
+          });
 
-        // State should always be valid
-        expect(user.state).toBeDefined();
-        expect(user.email).toBe(email);
-        expect(user.isDeleted).toBe(false);
-      })
+          // Entity should always be in valid state
+          expect(user.state).toBeDefined();
+          expect(user.email).toBe(email);
+          expect(user.nickname).toBe(nickname);
+          expect(user.isDeleted).toBe(false);
+        }
+      )
     );
   });
 
-  it('handles email changes correctly', () => {
+  it('handles multiple updates correctly', () => {
     fc.assert(
       fc.property(
-        fc.string({ minLength: 5 }),
-        fc.string({ minLength: 5 }),
-        (email1, email2) => {
+        fc.emailAddress(),
+        fc.array(fc.string({ minLength: 0, maxLength: 100 })),
+        (email, bios) => {
           const user = User.create({
-            body: { email: email1, nickname: 'user' }
+            body: { email, nickname: 'user' }
           });
 
-          user.setEmail(email2);
+          // Apply multiple bio updates
+          for (const bio of bios) {
+            user.updateProfile({ bio });
+          }
 
-          expect(user.email).toBe(email2);
-          // Original email is preserved in state
-          expect(user.state.previousEmails).toContain(email1);
+          // Final state should match last bio
+          const lastBio = bios[bios.length - 1] || undefined;
+          expect(user.state.bio).toBe(lastBio);
         }
       )
     );
@@ -691,19 +568,30 @@ describe('User', () => {
 
 ## Testing Checklist
 
-- [ ] Test each reducer case in isolation
-- [ ] Test event sequences
-- [ ] Test mutation validation
-- [ ] Test entity properties
-- [ ] Test full lifecycle with repository
+Focus on testing behavior through the entity interface:
+
+- [ ] Test entity creation with valid/invalid data
+- [ ] Test each mutation method
+- [ ] Test validation and business rules
+- [ ] Test entity lifecycle (create → update → delete → restore)
+- [ ] Test computed properties and getters
+- [ ] Test persistence with repository
+- [ ] Test event history is maintained
 - [ ] Test with plugins
-- [ ] Test error cases
-- [ ] Test edge cases with property-based testing
-- [ ] Verify event history
-- [ ] Test event idempotency
+- [ ] Test error cases and edge cases
+
+**Don't test:**
+- ❌ Reducers directly (implementation detail)
+- ❌ Internal event dispatch (implementation detail)
+- ❌ Event body structure (implementation detail)
+
+**Do test:**
+- ✅ Public methods and their effects on state
+- ✅ Business rules and validation
+- ✅ Entity behavior as a black box
 
 ## Related Documentation
 
-- [Error Handling](/docs/guides/error-handling)
+- [Error Handling](/docs/error-handling)
 - [Best Practices](/docs/best-practices)
-- [Creating Custom Plugins](/docs/plugins/creating-plugins)
+- [Plugins](/docs/plugins)

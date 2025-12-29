@@ -15,11 +15,11 @@
     "plugins",
 
     "---Production Guide---",
+    "querying",
+    "testing",
     "event-naming",
     "event-granularity",
-    "error-handling",
-    "testing",
-    "performance",
-    "event-versioning"
+    "event-versioning",
+    "error-handling"
   ]
 }

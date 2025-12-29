@@ -1,0 +1,298 @@
+---
+title: Querying Entities
+description: Learn how to query entities by custom fields beyond entityId
+---
+
+## Overview
+
+Ventyd repositories only support querying by `entityId`:
+
+```typescript
+// ✅ Built-in: Query by entityId
+const user = await repository.findOne({ entityId: "user-123" });
+
+// ❌ Not supported: Query by other fields
+const user = await repository.findOne({ email: "alice@example.com" });
+```
+
+To query by other fields (email, username, etc.), you need to maintain separate indexes or views. This guide shows you how.
+
+## Query by Custom Fields
+
+Use plugins to maintain a separate index/view table for fast queries.
+
+### Example: Query Users by Email
+
+Create a plugin that maintains an email-to-entityId index:
+
+```typescript
+// Database table: user_emails
+// Columns: email (unique), entity_id, updated_at
+
+const emailIndexPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    if (entityName !== "user") return;
+
+    // Update email index
+    await db.userEmails.upsert(
+      { email: state.email },
+      {
+        email: state.email,
+        entityId: entityId,
+        updatedAt: new Date()
+      }
+    );
+  }
+};
+
+const userRepository = createRepository(User, {
+  adapter,
+  plugins: [emailIndexPlugin]
+});
+```
+
+Query users by email:
+
+```typescript
+async function findUserByEmail(email: string) {
+  // 1. Look up entityId from index
+  const record = await db.userEmails.findOne({ email });
+
+  if (!record) {
+    return null;
+  }
+
+  // 2. Load entity by entityId
+  return userRepository.findOne({ entityId: record.entityId });
+}
+
+// Usage
+const user = await findUserByEmail("alice@example.com");
+if (user) {
+  console.log(user.state.nickname);
+}
+```
+
+### Example: Query Orders by Status
+
+Maintain an index for querying orders by status:
+
+```typescript
+// Database table: order_status_index
+// Columns: status, entity_id, updated_at
+
+const orderStatusPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    if (entityName !== "order") return;
+
+    // Update status index
+    await db.orderStatusIndex.upsert(
+      { entityId },
+      {
+        status: state.status,
+        entityId: entityId,
+        customerId: state.customerId,
+        updatedAt: new Date()
+      }
+    );
+  }
+};
+
+const orderRepository = createRepository(Order, {
+  adapter,
+  plugins: [orderStatusPlugin]
+});
+```
+
+Query orders by status:
+
+```typescript
+async function findOrdersByStatus(status: string) {
+  // 1. Get all entityIds for this status
+  const records = await db.orderStatusIndex.find({ status });
+
+  // 2. Load all entities in parallel
+  const orders = await Promise.all(
+    records.map((record) =>
+      orderRepository.findOne({ entityId: record.entityId })
+    )
+  );
+
+  return orders.filter((order) => order !== null);
+}
+
+// Usage
+const pendingOrders = await findOrdersByStatus("pending");
+console.log(`Found ${pendingOrders.length} pending orders`);
+```
+
+## Read-Only Queries with Snapshots
+
+For read-heavy workloads, use snapshots to avoid replaying events on every query.
+
+### Save Snapshots with Plugins
+
+```typescript
+// Database table: snapshots
+// Columns: entity_name, entity_id, state (JSON), version_as_of
+
+const snapshotPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    // Save snapshot after every commit
+    await db.snapshots.upsert(
+      { entityName, entityId },
+      {
+        entityName,
+        entityId,
+        state: state,
+        versionAsOf: new Date().toISOString()
+      }
+    );
+  }
+};
+
+const repository = createRepository(User, {
+  adapter,
+  plugins: [snapshotPlugin]
+});
+```
+
+### Query Using Snapshots
+
+Use `Entity.load()` to create readonly entities from snapshots:
+
+```typescript
+async function getUserByEmail(email: string) {
+  // 1. Look up entityId from index
+  const record = await db.userEmails.findOne({ email });
+  if (!record) return null;
+
+  // 2. Load snapshot instead of replaying events
+  const snapshot = await db.snapshots.findOne({
+    entityName: "user",
+    entityId: record.entityId
+  });
+
+  if (!snapshot) {
+    // No snapshot - fall back to repository
+    return repository.findOne({ entityId: record.entityId });
+  }
+
+  // 3. Create readonly entity from snapshot
+  const user = User.load({
+    entityId: record.entityId,
+    state: snapshot.state
+  });
+
+  return user;
+}
+
+// Usage - Fast readonly access
+const user = await getUserByEmail("alice@example.com");
+console.log(user.state.nickname);
+console.log(user.state.bio);
+
+// ❌ Cannot mutate - readonly entity
+// user.updateProfile({ ... }); // Type error
+```
+
+**Note:** `Entity.load()` returns a readonly entity. For mutations, use the repository:
+
+```typescript
+// For reads - Fast with snapshots
+const user = await getUserByEmail("alice@example.com");
+console.log(user.state);
+
+// For writes - Use repository
+const user = await repository.findOne({ entityId: user.entityId });
+user.updateProfile({ bio: "New bio" });
+await repository.commit(user);
+```
+
+## Pattern: Denormalized Views
+
+For complex queries, maintain denormalized views:
+
+```typescript
+// Database table: user_search_view
+// Columns: entity_id, email, nickname, bio, is_deleted, created_at
+
+const searchViewPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    if (entityName !== "user") return;
+
+    // Update denormalized view
+    await db.userSearchView.upsert(
+      { entityId },
+      {
+        entityId: entityId,
+        email: state.email,
+        nickname: state.nickname,
+        bio: state.bio,
+        isDeleted: state.isDeleted,
+        createdAt: state.createdAt
+      }
+    );
+  }
+};
+```
+
+Query the view:
+
+```typescript
+async function searchUsers(query: string) {
+  // 1. Search denormalized view
+  const results = await db.userSearchView.find({
+    $or: [
+      { nickname: { $regex: query, $options: "i" } },
+      { email: { $regex: query, $options: "i" } },
+      { bio: { $regex: query, $options: "i" } }
+    ],
+    isDeleted: false
+  });
+
+  // 2. Load entities from snapshots for readonly access
+  const users = await Promise.all(
+    results.map(async (result) => {
+      const snapshot = await db.snapshots.findOne({
+        entityName: "user",
+        entityId: result.entityId
+      });
+
+      return User.load({
+        entityId: result.entityId,
+        state: snapshot.state
+      });
+    })
+  );
+
+  return users;
+}
+
+// Usage
+const users = await searchUsers("alice");
+users.forEach((user) => {
+  console.log(user.state.nickname, user.state.email);
+});
+```
+
+## Summary
+
+**Querying by entityId (built-in):**
+```typescript
+const user = await repository.findOne({ entityId: "user-123" });
+```
+
+**Querying by custom fields:**
+1. Use plugins to maintain indexes/views
+2. Look up entityId from index
+3. Load entity using repository
+
+**Fast readonly queries:**
+1. Use plugins to save snapshots
+2. Query indexes to find entityId
+3. Load snapshot with `Entity.load()`
+4. No event replay needed
+
+**For mutations:**
+- Always use repository, never snapshots
