@@ -1,0 +1,276 @@
+---
+title: Overview
+description: Understanding the fundamental building blocks of Ventyd
+---
+
+## The Big Picture
+
+```
+┌─────────────┐
+│   Events    │  ← Facts that happened
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│   Reducer   │  ← Computes state from events
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│    State    │  ← Current state of entity
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│  Mutations  │  ← Business logic that creates events
+└─────────────┘
+```
+
+## Essential Concepts
+
+<Cards>
+  <Card
+    title="Event Sourcing"
+    description="Store all changes as immutable events instead of current state"
+    href="/docs/core-concepts/event-sourcing"
+  />
+  <Card
+    title="Entities"
+    description="Domain objects with identity that persist over time"
+    href="/docs/core-concepts/entities"
+  />
+  <Card
+    title="Events"
+    description="Immutable facts representing something that happened"
+    href="/docs/core-concepts/events"
+  />
+  <Card
+    title="Reducers"
+    description="Pure functions that compute state from events"
+    href="/docs/core-concepts/reducers"
+  />
+  <Card
+    title="Mutations"
+    description="Methods that validate and dispatch events"
+    href="/docs/core-concepts/mutations"
+  />
+  <Card
+    title="Repositories"
+    description="Store and retrieve entities from persistence"
+    href="/docs/core-concepts/repositories"
+  />
+  <Card
+    title="CQRS"
+    description="Separate read and write models for better architecture"
+    href="/docs/core-concepts/cqrs"
+  />
+</Cards>
+
+## Quick Overview
+
+### Events
+
+Events are **immutable records** of things that happened:
+
+```typescript
+{
+  eventId: "evt_123",
+  eventName: "user:created",
+  eventCreatedAt: "2024-01-15T10:30:00Z",
+  entityName: "user",
+  entityId: "user_456",
+  body: {
+    email: "alice@example.com",
+    name: "Alice"
+  }
+}
+```
+
+### Reducers
+
+Reducers are **pure functions** that build state from events:
+
+```typescript
+const reducer = (prevState, event) => {
+  switch (event.eventName) {
+    case "user:created":
+      return {
+        email: event.body.email,
+        name: event.body.name
+      };
+    default:
+      return prevState;
+  }
+};
+```
+
+### Entities
+
+Entities are **domain objects** with business logic:
+
+```typescript
+class User extends Entity(schema, reducer) {
+  get email() {
+    return this.state.email;
+  }
+
+  updateName = mutation(this, (dispatch, newName: string) => {
+    dispatch("user:name_updated", { name: newName });
+  });
+}
+```
+
+### Mutations
+
+Mutations **validate and dispatch** events:
+
+```typescript
+updateEmail = mutation(this, (dispatch, email: string) => {
+  // Validate
+  if (!isValidEmail(email)) {
+    throw new Error("Invalid email");
+  }
+
+  // Dispatch
+  dispatch("user:email_updated", { email });
+});
+```
+
+## Why These Concepts Matter
+
+### Complete Audit Trail
+
+Every change is recorded as an event:
+
+```typescript
+const user = await userRepository.findOne({ entityId: "user_123" });
+
+// See all events
+console.log(user.events);
+// [
+//   { eventName: "user:created", ... },
+//   { eventName: "user:email_updated", ... },
+//   { eventName: "user:name_updated", ... }
+// ]
+```
+
+### Time Travel
+
+Reconstruct state at any point:
+
+```typescript
+// Play only first 2 events
+const pastState = events
+  .slice(0, 2)
+  .reduce(reducer, undefined);
+
+console.log(pastState); // State after 2 events
+```
+
+### Debugging
+
+Understand exactly how bugs occurred:
+
+```typescript
+// Find when the bug was introduced
+user.events.forEach((event, i) => {
+  const state = events.slice(0, i + 1).reduce(reducer, undefined);
+  console.log(`After event ${i + 1}:`, state);
+});
+```
+
+## The Ventyd Workflow
+
+1. **Define** your schema (events and state)
+2. **Create** a reducer (how events build state)
+3. **Build** an entity class (business logic)
+4. **Set up** a repository (persistence)
+5. **Use** your entity (create, mutate, query)
+
+```typescript
+// 1. Define
+const schema = defineSchema("user", { ... });
+
+// 2. Create
+const reducer = defineReducer(schema, (prev, event) => { ... });
+
+// 3. Build
+class User extends Entity(schema, reducer) { ... }
+
+// 4. Set up
+const repo = createRepository(User, { adapter });
+
+// 5. Use
+const user = User.create({ ... });
+await repo.commit(user);
+```
+
+## Common Questions
+
+### "Why separate events and state?"
+
+Events are the **source of truth** - they're immutable and never change. State is **derived** from events and can be rebuilt at any time. This separation enables:
+
+- Event replay
+- Time travel
+- Schema migration
+- Multiple read models
+
+### "Why pure reducers?"
+
+Pure reducers are **deterministic** - same events always produce same state. This enables:
+
+- Predictable behavior
+- Easy testing
+- Event replay
+- Time travel debugging
+
+### "Why mutations instead of methods?"
+
+Mutations enforce important constraints:
+
+- Type safety (readonly entities can't mutate)
+- Validation before dispatch
+- Consistent event creation
+- Better DX with autocomplete
+
+## Next Steps
+
+
+  
+    ### Learn Event Sourcing
+
+    Understand [why and how](/docs/core-concepts/event-sourcing) event sourcing works.
+  
+
+  
+    ### Master Entities
+
+    Learn about [entities](/docs/core-concepts/entities) and their lifecycle.
+  
+
+  
+    ### Design Events
+
+    Discover [best practices](/docs/core-concepts/events) for event design.
+  
+
+  
+    ### Write Reducers
+
+    Learn how to [write reducers](/docs/core-concepts/reducers) correctly.
+  
+
+
+<Callout type="info">
+**Learning Path**
+
+New to event sourcing? We recommend reading the concepts in this order:
+1. Event Sourcing (the pattern)
+2. Events (the data)
+3. Reducers (the logic)
+4. Entities (the API)
+5. Mutations (the operations)
+6. Repositories (the persistence)
+7. CQRS (the architecture)
+</Callout>

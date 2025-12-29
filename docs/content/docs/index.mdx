@@ -1,0 +1,105 @@
+---
+title: Introduction
+description: A TypeScript-first event sourcing library built for modern web applications
+---
+
+# Welcome to Ventyd
+
+**Ventyd** is a TypeScript-first event sourcing library that makes it easy to build applications where every state change is captured as an immutable event.
+
+## Why Ventyd?
+
+Traditional applications only store the current state of your data. Ventyd takes a different approach - it stores **all the events** that led to the current state, giving you superpowers like complete audit trails, time travel debugging, and event replay.
+
+<Cards>
+  <Card
+    title="Type-Safe"
+    description="Full TypeScript support with comprehensive type inference. Catch errors at compile time."
+    href="/docs/getting-started"
+  />
+  <Card
+    title="Flexible Validation"
+    description="Use Valibot, Zod, ArkType, TypeBox, or any Standard Schema library."
+    href="/docs/validation"
+  />
+  <Card
+    title="Database Agnostic"
+    description="Simple adapter interface works with MongoDB, PostgreSQL, Redis, or custom solutions."
+    href="/docs/storage"
+  />
+  <Card
+    title="Extensible"
+    description="Plugin system for analytics, logging, notifications, and custom side effects."
+    href="/docs/plugins"
+  />
+</Cards>
+
+
+## How It Works
+
+Ventyd follows a simple pattern:
+
+1. **Define your schema** - Describe your events and state using a validation library
+2. **Create a reducer** - Define how events transform your state
+3. **Build your entity** - Add business logic as methods
+4. **Set up storage** - Connect to your database with an adapter
+5. **Use it!** - Create, update, and query your entities
+
+
+## Documentation Sections
+
+<Cards>
+  <Card
+    title="Getting Started"
+    description="Installation, quick start, and your first entity"
+    href="/docs/getting-started"
+  />
+  <Card
+    title="Core Concepts"
+    description="Event sourcing, entities, events, reducers, mutations, and CQRS"
+    href="/docs/core-concepts"
+  />
+  <Card
+    title="Validation"
+    description="Complete guides for Valibot, Zod, TypeBox, ArkType, and Standard Schema"
+    href="/docs/validation"
+  />
+  <Card
+    title="Storage"
+    description="In-memory, MongoDB, PostgreSQL adapters and custom implementations"
+    href="/docs/storage"
+  />
+  <Card
+    title="Plugins"
+    description="Analytics, audit logging, event broadcasting, search indexing, and more"
+    href="/docs/plugins"
+  />
+  <Card
+    title="Guides"
+    description="Event naming, testing, performance, error handling, and best practices"
+    href="/docs/guides"
+  />
+</Cards>
+
+## Community & Support
+
+<Cards>
+  <Card
+    title="GitHub"
+    description="Source code, issues, and contributions"
+    href="https://github.com/daangn/ventyd"
+  />
+  <Card
+    title="Issues"
+    description="Report bugs or request features"
+    href="https://github.com/daangn/ventyd/issues"
+  />
+  <Card
+    title="License"
+    description="MIT - Free for commercial and personal use"
+  />
+</Cards>
+
+## Ready to Get Started?
+
+Jump into the [Quick Start guide](/docs/getting-started/quick-start) and build your first event-sourced entity in 5 minutes!

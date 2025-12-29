@@ -1,0 +1,12 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "index",
+    "getting-started",
+    "core-concepts",
+    "validation",
+    "storage",
+    "plugins",
+    "guides"
+  ]
+}

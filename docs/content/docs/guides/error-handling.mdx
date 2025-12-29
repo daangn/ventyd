@@ -1,0 +1,638 @@
+---
+title: Error Handling Patterns
+description: Learn effective error handling strategies for event-sourced systems
+---
+
+# Error Handling Patterns
+
+Proper error handling in event-sourced systems ensures data integrity, provides clear feedback, and handles failures gracefully. This guide covers patterns for handling errors at every layer.
+
+## Core Principles
+
+### 1. Validate Before Dispatching
+
+Always validate business rules before dispatching events:
+
+```typescript
+class BankAccount extends Entity(accountSchema, accountReducer) {
+  withdraw = mutation(this, (dispatch, amount: number) => {
+    // Validate input
+    if (amount <= 0) {
+      throw new Error("Withdrawal amount must be positive");
+    }
+
+    // Validate business rules
+    if (amount > this.state.balance) {
+      throw new Error(
+        `Insufficient funds: current balance is ${this.state.balance}, ` +
+        `requested ${amount}`
+      );
+    }
+
+    if (this.state.isFrozen) {
+      throw new Error("Cannot withdraw from frozen account");
+    }
+
+    // Only dispatch after all validations pass
+    dispatch("account:withdrawn", { amount });
+  });
+}
+```
+
+**Why?** Validation before dispatch prevents invalid events from entering the event store.
+
+### 2. Use Descriptive Error Messages
+
+Provide clear, actionable error messages:
+
+```typescript
+// Bad - Vague errors
+class User extends Entity(userSchema, userReducer) {
+  delete = mutation(this, (dispatch) => {
+    if (this.state.status === "deleted") {
+      throw new Error("Error"); // ❌ What error?
+    }
+    dispatch("user:deleted", {});
+  });
+}
+
+// Good - Clear, actionable errors
+class User extends Entity(userSchema, userReducer) {
+  delete = mutation(this, (dispatch) => {
+    if (this.state.status === "deleted") {
+      throw new Error(
+        "Cannot delete user: user is already deleted. " +
+        "If you want to restore this user, use the restore() method."
+      );
+    }
+
+    if (this.state.activeSubscriptions > 0) {
+      throw new Error(
+        "Cannot delete user with active subscriptions. " +
+        "Please cancel subscriptions first."
+      );
+    }
+
+    dispatch("user:deleted", {});
+  });
+}
+```
+
+**Why?** Good error messages help developers and users understand what went wrong and how to fix it.
+
+### 3. Never Modify State Directly
+
+The `mutation()` helper enforces readonly constraints:
+
+```typescript
+// Bad - Will cause type error and runtime issues
+class Order extends Entity(orderSchema, orderReducer) {
+  ship = mutation(this, (dispatch) => {
+    this.state.status = "shipped"; // ❌ Type error: readonly
+    // State should only change through events
+  });
+}
+
+// Good - Use dispatch
+class Order extends Entity(orderSchema, orderReducer) {
+  ship = mutation(this, (dispatch, trackingNumber: string) => {
+    if (this.state.status !== "confirmed") {
+      throw new Error("Order must be confirmed before shipping");
+    }
+    dispatch("order:shipped", { trackingNumber });
+  });
+}
+```
+
+## Error Handling Patterns
+
+### Pattern 1: Input Validation
+
+Validate parameters before processing:
+
+```typescript
+class Subscription extends Entity(subscriptionSchema, subscriptionReducer) {
+  changePlan = mutation(
+    this,
+    (dispatch, newPlan: string, effectiveDate?: string) => {
+      // Validate inputs
+      if (!newPlan || newPlan.trim() === "") {
+        throw new Error("Plan name cannot be empty");
+      }
+
+      const allowedPlans = ["free", "pro", "enterprise"];
+      if (!allowedPlans.includes(newPlan)) {
+        throw new Error(
+          `Invalid plan: ${newPlan}. Allowed: ${allowedPlans.join(", ")}`
+        );
+      }
+
+      if (effectiveDate && new Date(effectiveDate) < new Date()) {
+        throw new Error("Effective date cannot be in the past");
+      }
+
+      // Validate business rules
+      if (newPlan === "free" && this.state.seats > 1) {
+        throw new Error(
+          "Cannot downgrade to free plan with multiple seats. " +
+          "Please remove extra seats first."
+        );
+      }
+
+      dispatch("subscription:plan_changed", {
+        oldPlan: this.state.plan,
+        newPlan,
+        effectiveDate: effectiveDate || new Date().toISOString()
+      });
+    }
+  );
+}
+```
+
+### Pattern 2: State-Based Validation
+
+Validate state preconditions:
+
+```typescript
+class Order extends Entity(orderSchema, orderReducer) {
+  ship = mutation(this, (dispatch, trackingNumber: string) => {
+    // Check state preconditions
+    if (!this.state.paymentConfirmed) {
+      throw new Error(
+        "Cannot ship order: payment not confirmed. " +
+        "Please process payment first."
+      );
+    }
+
+    if (this.state.status === "shipped") {
+      throw new Error("Order is already shipped");
+    }
+
+    if (this.state.status === "cancelled") {
+      throw new Error(
+        "Cannot ship cancelled order. " +
+        "Use restore() to reactivate if needed."
+      );
+    }
+
+    dispatch("order:shipped", {
+      trackingNumber,
+      shippedAt: new Date().toISOString()
+    });
+  });
+}
+```
+
+### Pattern 3: Custom Error Classes
+
+Create domain-specific error classes:
+
+```typescript
+// Custom error classes for different failure scenarios
+class ValidationError extends Error {
+  constructor(message: string, public readonly field?: string) {
+    super(message);
+    this.name = "ValidationError";
+  }
+}
+
+class BusinessRuleError extends Error {
+  constructor(message: string, public readonly rule?: string) {
+    super(message);
+    this.name = "BusinessRuleError";
+  }
+}
+
+class ConflictError extends Error {
+  constructor(message: string, public readonly conflictingEntity?: string) {
+    super(message);
+    this.name = "ConflictError";
+  }
+}
+
+// Using domain-specific errors
+class User extends Entity(userSchema, userReducer) {
+  setEmail = mutation(this, (dispatch, email: string) => {
+    // Input validation
+    if (!email.includes("@")) {
+      throw new ValidationError("Invalid email format", "email");
+    }
+
+    // Business rule validation
+    if (this.state.isDeleted) {
+      throw new BusinessRuleError(
+        "Cannot update deleted user",
+        "deletion"
+      );
+    }
+
+    // Conflict checking
+    if (email === this.state.email) {
+      throw new ConflictError(
+        "New email same as current email",
+        "duplicate"
+      );
+    }
+
+    dispatch("user:email_changed", { email });
+  });
+}
+
+// Handling domain-specific errors
+try {
+  user.setEmail("invalid");
+} catch (error) {
+  if (error instanceof ValidationError) {
+    console.log(`Validation failed on ${error.field}: ${error.message}`);
+  } else if (error instanceof BusinessRuleError) {
+    console.log(`Rule violation: ${error.message}`);
+  } else if (error instanceof ConflictError) {
+    console.log(`Conflict on ${error.conflictingEntity}: ${error.message}`);
+  }
+}
+```
+
+### Pattern 4: Compound Operations with Rollback
+
+Handle failures in operations with multiple steps:
+
+```typescript
+class Order extends Entity(orderSchema, orderReducer) {
+  checkout = mutation(
+    this,
+    async (dispatch, paymentData: PaymentData) => {
+      // Validate preconditions
+      if (this.state.items.length === 0) {
+        throw new Error("Cannot checkout empty order");
+      }
+
+      if (!paymentData.amount || paymentData.amount <= 0) {
+        throw new Error("Invalid payment amount");
+      }
+
+      try {
+        // Step 1: Reserve inventory
+        const reservationId = await inventoryService.reserve(
+          this.state.items
+        );
+
+        try {
+          // Step 2: Process payment
+          const transactionId = await paymentService.charge(
+            paymentData.amount,
+            paymentData.method
+          );
+
+          // All steps succeeded, dispatch events
+          dispatch("order:reserved", { reservationId });
+          dispatch("order:payment_processed", { transactionId });
+          dispatch("order:confirmed", {});
+        } catch (paymentError) {
+          // Payment failed, release reservation
+          await inventoryService.release(reservationId);
+
+          if (paymentError instanceof PaymentDeclinedError) {
+            throw new Error(
+              `Payment declined: ${paymentError.message}. ` +
+              "Please try another payment method."
+            );
+          }
+
+          throw new Error(
+            `Payment processing failed: ${paymentError.message}. ` +
+            "Inventory has been released. Please try again."
+          );
+        }
+      } catch (inventoryError) {
+        throw new Error(
+          `Cannot complete checkout: ${inventoryError.message}. ` +
+          "Some items may not be available."
+        );
+      }
+    }
+  );
+}
+```
+
+### Pattern 5: Graceful Degradation
+
+Handle non-critical failures without blocking operations:
+
+```typescript
+class Post extends Entity(postSchema, postReducer) {
+  publish = mutation(this, async (dispatch, metadata?: PostMetadata) => {
+    if (this.state.status === "published") {
+      throw new Error("Post is already published");
+    }
+
+    // Critical validation
+    if (!this.state.title || !this.state.content) {
+      throw new Error("Title and content are required");
+    }
+
+    // Dispatch the core event
+    dispatch("post:published", {
+      publishedAt: new Date().toISOString(),
+      ...metadata
+    });
+
+    // Non-critical side effects (don't block if they fail)
+    try {
+      await searchService.indexPost(this.state);
+    } catch (error) {
+      logger.warn("Failed to index post", { error, postId: this.entityId });
+      // Post is still published even if indexing fails
+    }
+
+    try {
+      await notificationService.notifyFollowers(
+        this.state.authorId,
+        this.state.id
+      );
+    } catch (error) {
+      logger.warn("Failed to notify followers", { error });
+      // Post is still published even if notifications fail
+    }
+
+    try {
+      await analyticsService.trackPublished(this.state);
+    } catch (error) {
+      logger.warn("Failed to track analytics", { error });
+      // Post is still published even if analytics fails
+    }
+  });
+}
+```
+
+## Repository-Level Error Handling
+
+### Handling Commit Errors
+
+```typescript
+const userRepository = createRepository(User, {
+  adapter,
+  onPluginError: (error, plugin) => {
+    // Handle plugin errors
+    logger.error("Plugin execution failed", {
+      error: error instanceof Error ? error.message : String(error),
+      plugin: plugin.constructor?.name || "unknown"
+    });
+
+    // Send to error tracking service
+    sentry.captureException(error, {
+      tags: { component: "plugin" },
+      level: "warning"
+    });
+  }
+});
+
+// Handling commit failures
+try {
+  const user = User.create({
+    body: { email: "john@example.com" }
+  });
+
+  user.updateProfile({ bio: "Software Engineer" });
+
+  await userRepository.commit(user);
+} catch (error) {
+  if (error instanceof ValidationError) {
+    // Schema validation failed
+    console.error("Invalid event data:", error.message);
+  } else {
+    // Storage or plugin error
+    console.error("Failed to commit:", error);
+
+    // Retry logic
+    if (shouldRetry(error)) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await userRepository.commit(user);
+    }
+  }
+}
+
+function shouldRetry(error: any): boolean {
+  // Retry on network errors, timeouts, etc.
+  return (
+    error.code === "ECONNREFUSED" ||
+    error.code === "ETIMEDOUT" ||
+    error.message?.includes("temporary")
+  );
+}
+```
+
+### Handling Retrieval Errors
+
+```typescript
+// Handle entity not found
+const user = await userRepository.findOne({
+  entityId: userId
+});
+
+if (!user) {
+  throw new Error(
+    `User not found: ${userId}. ` +
+    "Please check the user ID and try again."
+  );
+}
+
+// Handle corrupted state
+try {
+  const order = await orderRepository.findOne({ entityId: orderId });
+
+  if (!order) {
+    throw new Error(`Order not found: ${orderId}`);
+  }
+
+  // Validate recovered state
+  if (!order.state.items || order.state.items.length === 0) {
+    throw new Error(
+      `Order corrupted: invalid state for order ${orderId}. ` +
+      "Items list is empty but order should have items."
+    );
+  }
+
+  return order;
+} catch (error) {
+  logger.error("Failed to retrieve order", { orderId, error });
+  throw new Error(
+    `Failed to load order: ${error instanceof Error ? error.message : String(error)}`
+  );
+}
+```
+
+## Error Handling in Plugins
+
+### Plugin Error Handling Pattern
+
+```typescript
+const safePlugin: Plugin = {
+  async onCommitted({ entityName, entityId, events, state }) {
+    for (const event of events) {
+      try {
+        // Try to process event
+        await externalService.send({
+          entityName,
+          entityId,
+          event
+        });
+      } catch (error) {
+        // Log the error
+        logger.error("Plugin processing failed", {
+          entityName,
+          entityId,
+          eventName: event.eventName,
+          error: error instanceof Error ? error.message : String(error)
+        });
+
+        // Queue for retry (don't throw)
+        await retryQueue.enqueue({
+          entityName,
+          entityId,
+          event,
+          error,
+          timestamp: new Date().toISOString()
+        });
+
+        // Continue processing other events
+        // Don't let one failure stop others
+      }
+    }
+  }
+};
+```
+
+## Testing Error Handling
+
+Write tests for error cases:
+
+```typescript
+import { describe, it, expect } from 'vitest';
+
+describe('Error Handling', () => {
+  describe('Input Validation', () => {
+    it('rejects empty email', () => {
+      const user = User.create({
+        body: { email: "test@example.com" }
+      });
+
+      expect(() => {
+        user.setEmail("");
+      }).toThrow(
+        expect.objectContaining({
+          message: expect.stringMatching(/email/)
+        })
+      );
+    });
+
+    it('rejects invalid email format', () => {
+      const user = User.create({
+        body: { email: "test@example.com" }
+      });
+
+      expect(() => {
+        user.setEmail("invalid-email");
+      }).toThrow(
+        expect.objectContaining({
+          message: expect.stringMatching(/email format/)
+        })
+      );
+    });
+  });
+
+  describe('State Validation', () => {
+    it('prevents shipping unconfirmed order', () => {
+      const order = Order.create({
+        body: { items: [{ id: "1", quantity: 1 }] }
+      });
+
+      expect(() => {
+        order.ship("TRACKING-123");
+      }).toThrow(
+        expect.objectContaining({
+          message: expect.stringMatching(/confirmed/)
+        })
+      );
+    });
+
+    it('prevents deleting already deleted user', () => {
+      const user = User.create({
+        body: { email: "test@example.com" }
+      });
+      user.delete();
+
+      expect(() => {
+        user.delete();
+      }).toThrow(
+        expect.objectContaining({
+          message: expect.stringMatching(/already deleted/)
+        })
+      );
+    });
+  });
+
+  describe('Business Rule Validation', () => {
+    it('prevents withdrawal exceeding balance', () => {
+      const account = BankAccount.create({
+        body: { balance: 100 }
+      });
+
+      expect(() => {
+        account.withdraw(150);
+      }).toThrow(
+        expect.objectContaining({
+          message: expect.stringMatching(/insufficient funds/)
+        })
+      );
+    });
+  });
+
+  describe('Error Recovery', () => {
+    it('retries failed operations', async () => {
+      let attempts = 0;
+      const unreliableService = {
+        send: vi.fn(async () => {
+          attempts++;
+          if (attempts < 3) {
+            throw new Error("Temporary failure");
+          }
+        })
+      };
+
+      // Retry logic would go here
+      for (let i = 0; i < 3; i++) {
+        try {
+          await unreliableService.send({});
+          break;
+        } catch (error) {
+          if (i === 2) throw error;
+          await new Promise(r => setTimeout(r, 10));
+        }
+      }
+
+      expect(unreliableService.send).toHaveBeenCalledTimes(3);
+    });
+  });
+});
+```
+
+## Summary
+
+### Error Handling Checklist
+
+- [ ] Validate inputs before processing
+- [ ] Check state preconditions before dispatching
+- [ ] Use descriptive error messages
+- [ ] Create domain-specific error classes
+- [ ] Never modify state directly
+- [ ] Handle failures gracefully in plugins
+- [ ] Implement retry logic for transient errors
+- [ ] Log errors with full context
+- [ ] Write tests for error cases
+- [ ] Use error tracking services (Sentry, etc.)
+
+## Related Documentation
+
+- [Best Practices](/docs/best-practices)
+- [Creating Custom Plugins](/docs/plugins/creating-plugins)
+- [Testing Guide](/docs/guides/testing)

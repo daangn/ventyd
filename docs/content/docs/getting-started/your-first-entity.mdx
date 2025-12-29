@@ -1,0 +1,552 @@
+---
+title: Your First Entity
+description: Build a complete, real-world entity with all the features
+---
+
+# Your First Entity
+
+Let's build a complete **Blog Post** entity that demonstrates all of Ventyd's features. This example includes creation, updates, publishing, deletion, and restoration.
+
+## What We'll Build
+
+A blog post entity with these capabilities:
+
+- ✅ Create draft posts
+- ✅ Update content
+- ✅ Publish and unpublish
+- ✅ Soft delete with restoration
+- ✅ Complete validation
+- ✅ Business rule enforcement
+
+## Define the Schema
+
+Let's start with a comprehensive schema that covers all our use cases.
+
+```typescript title="Post.schema.ts"
+import { defineSchema } from 'ventyd';
+import { valibot, v } from 'ventyd/valibot';
+
+export const postSchema = defineSchema("post", {
+  schema: valibot({
+    event: {
+      // Creating a new post
+      created: v.object({
+        title: v.pipe(v.string(), v.minLength(1), v.maxLength(200)),
+        content: v.string(),
+        authorId: v.string(),
+      }),
+
+      // Updating content
+      content_updated: v.object({
+        title: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(200))),
+        content: v.optional(v.string()),
+      }),
+
+      // Publishing workflow
+      published: v.object({
+        publishedBy: v.string(),
+      }),
+
+      unpublished: v.object({
+        reason: v.optional(v.string()),
+      }),
+
+      // Soft delete
+      deleted: v.object({
+        deletedBy: v.string(),
+        reason: v.optional(v.string()),
+      }),
+
+      restored: v.object({
+        restoredBy: v.string(),
+      }),
+    },
+
+    state: v.object({
+      title: v.string(),
+      content: v.string(),
+      authorId: v.string(),
+      isPublished: v.boolean(),
+      publishedAt: v.nullable(v.string()),
+      publishedBy: v.nullable(v.string()),
+      isDeleted: v.boolean(),
+      deletedAt: v.nullable(v.string()),
+      deletedBy: v.nullable(v.string()),
+    }),
+  }),
+
+  initialEventName: "post:created",
+});
+```
+
+<Callout type="info">
+**Schema Design Tips**
+
+- Use descriptive event names (past tense)
+- Include audit fields (who did what, when)
+- Keep events focused - one event per action
+</Callout>
+
+## Create the Reducer
+
+The reducer handles state transitions for each event.
+
+```typescript title="Post.reducer.ts"
+import { defineReducer } from 'ventyd';
+import { postSchema } from './post.schema';
+
+export const postReducer = defineReducer(postSchema, (prevState, event) => {
+  switch (event.eventName) {
+    case "post:created":
+      return {
+        title: event.body.title,
+        content: event.body.content,
+        authorId: event.body.authorId,
+        isPublished: false,
+        publishedAt: null,
+        publishedBy: null,
+        isDeleted: false,
+        deletedAt: null,
+        deletedBy: null,
+      };
+
+    case "post:content_updated":
+      return {
+        ...prevState,
+        ...(event.body.title && { title: event.body.title }),
+        ...(event.body.content && { content: event.body.content }),
+      };
+
+    case "post:published":
+      return {
+        ...prevState,
+        isPublished: true,
+        publishedAt: event.eventCreatedAt,
+        publishedBy: event.body.publishedBy,
+      };
+
+    case "post:unpublished":
+      return {
+        ...prevState,
+        isPublished: false,
+        publishedAt: null,
+        publishedBy: null,
+      };
+
+    case "post:deleted":
+      return {
+        ...prevState,
+        isDeleted: true,
+        deletedAt: event.eventCreatedAt,
+        deletedBy: event.body.deletedBy,
+      };
+
+    case "post:restored":
+      return {
+        ...prevState,
+        isDeleted: false,
+        deletedAt: null,
+        deletedBy: null,
+      };
+
+    default:
+      return prevState;
+  }
+});
+```
+
+<Callout type="warn">
+**Reducer Rules**
+
+- ✅ DO: Return new objects
+- ✅ DO: Use event timestamps (`event.eventCreatedAt`)
+- ❌ DON'T: Mutate `prevState`
+- ❌ DON'T: Use `new Date()` or `Date.now()`
+- ❌ DON'T: throw `Error` (If you need to validate something, validate before dispatching the event in entity class)
+</Callout>
+
+## Build the Entity
+
+Now let's add comprehensive business logic.
+
+```typescript title="Post.ts"
+import { Entity, mutation } from 'ventyd';
+import { postSchema } from './post.schema';
+import { postReducer } from './post.reducer';
+
+export class Post extends Entity(postSchema, postReducer) {
+  // Computed properties
+  get title() {
+    return this.state.title;
+  }
+
+  get content() {
+    return this.state.content;
+  }
+
+  get authorId() {
+    return this.state.authorId;
+  }
+
+  get isPublished() {
+    return this.state.isPublished;
+  }
+
+  get isDeleted() {
+    return this.state.isDeleted;
+  }
+
+  get isDraft() {
+    return !this.state.isPublished && !this.state.isDeleted;
+  }
+
+  // Business logic: Update content
+  updateContent = mutation(
+    this,
+    (dispatch, updates: { title?: string; content?: string }) => {
+      // Validate state
+      if (this.state.isDeleted) {
+        throw new Error("Cannot update deleted post");
+      }
+
+      if (this.state.isPublished) {
+        throw new Error("Cannot update published post. Unpublish it first.");
+      }
+
+      // Validate input
+      if (!updates.title && !updates.content) {
+        throw new Error("Must provide title or content to update");
+      }
+
+      if (updates.title && updates.title.length === 0) {
+        throw new Error("Title cannot be empty");
+      }
+
+      if (updates.title && updates.title.length > 200) {
+        throw new Error("Title is too long (max 200 characters)");
+      }
+
+      dispatch("post:content_updated", updates);
+    }
+  );
+
+  // Business logic: Publish
+  publish = mutation(this, (dispatch, publishedBy: string) => {
+    if (this.state.isDeleted) {
+      throw new Error("Cannot publish deleted post");
+    }
+
+    if (this.state.isPublished) {
+      throw new Error("Post is already published");
+    }
+
+    if (!this.state.title || this.state.title.trim().length === 0) {
+      throw new Error("Cannot publish post without title");
+    }
+
+    if (!this.state.content || this.state.content.trim().length === 0) {
+      throw new Error("Cannot publish post without content");
+    }
+
+    dispatch("post:published", { publishedBy });
+  });
+
+  // Business logic: Unpublish
+  unpublish = mutation(this, (dispatch, reason?: string) => {
+    if (this.state.isDeleted) {
+      throw new Error("Cannot unpublish deleted post");
+    }
+
+    if (!this.state.isPublished) {
+      throw new Error("Post is not published");
+    }
+
+    dispatch("post:unpublished", { reason });
+  });
+
+  // Business logic: Delete
+  delete = mutation(this, (dispatch, deletedBy: string, reason?: string) => {
+    if (this.state.isDeleted) {
+      throw new Error("Post is already deleted");
+    }
+
+    dispatch("post:deleted", { deletedBy, reason });
+  });
+
+  // Business logic: Restore
+  restore = mutation(this, (dispatch, restoredBy: string) => {
+    if (!this.state.isDeleted) {
+      throw new Error("Post is not deleted");
+    }
+
+    dispatch("post:restored", { restoredBy });
+  });
+}
+```
+
+<Callout type="info">
+**Business Logic Best Practices**
+
+1. **Validate First**: Check business rules before dispatching
+2. **Clear Errors**: Provide helpful, specific error messages
+3. **Guard Rails**: Prevent invalid state transitions
+4. **Computed Properties**: Use getters for derived state
+</Callout>
+
+## Set Up the Repository
+
+```typescript title="postRepository.ts"
+import { createRepository } from 'ventyd';
+import type { Adapter } from 'ventyd';
+import { Post } from './post.entity';
+
+// For now, use in-memory adapter
+const createInMemoryAdapter = (): Adapter => {
+  const events: any[] = [];
+
+  return {
+    async getEventsByEntityId({ entityName, entityId }) {
+      return events.filter(
+        e => e.entityName === entityName && e.entityId === entityId
+      );
+    },
+    async commitEvents({ events: newEvents }) {
+      events.push(...newEvents);
+      console.log(`💾 Committed ${newEvents.length} event(s)`);
+    }
+  };
+};
+
+export const postRepository = createRepository(Post, {
+  adapter: createInMemoryAdapter()
+});
+```
+
+## Step 5: Use It in Practice
+
+Let's walk through a complete workflow:
+
+```typescript title="example.ts"
+import { Post } from './Post';
+import { postRepository } from './postRepository';
+
+async function blogWorkflow() {
+  console.log("📝 Creating a new blog post...\n");
+
+  // 1. Create a draft post
+  const post = Post.create({
+    body: {
+      title: "Getting Started with Event Sourcing",
+      content: "Event sourcing is a powerful pattern...",
+      authorId: "user_alice",
+    }
+  });
+
+  console.log("✅ Created post:", post.entityId);
+  console.log("   Title:", post.title);
+  console.log("   Is draft:", post.isDraft);
+  console.log();
+
+  // 2. Make some edits
+  post.updateContent({
+    content: "Event sourcing is a powerful pattern that captures all changes as events..."
+  });
+
+  console.log("✏️  Updated content");
+  console.log();
+
+  // 3. Try to publish without proper content (will fail)
+  try {
+    post.publish("user_alice");
+  } catch (error) {
+    console.log("❌ Cannot publish yet:", error.message);
+  }
+  console.log();
+
+  // 4. Add more content
+  post.updateContent({
+    content: post.content + "\n\nIn this guide, we'll explore the basics of event sourcing and how Ventyd makes it easy in TypeScript."
+  });
+
+  // 5. Publish the post
+  post.publish("user_alice");
+  console.log("🚀 Published post!");
+  console.log("   Published at:", post.state.publishedAt);
+  console.log("   Is published:", post.isPublished);
+  console.log();
+
+  // 6. Try to edit (will fail - can't edit published posts)
+  try {
+    post.updateContent({ title: "New title" });
+  } catch (error) {
+    console.log("❌ Cannot edit published post:", error.message);
+  }
+  console.log();
+
+  // 7. Unpublish to make edits
+  post.unpublish("Need to fix typo");
+  console.log("📤 Unpublished post");
+  console.log();
+
+  // 8. Now we can edit
+  post.updateContent({
+    title: "Getting Started with Event Sourcing in TypeScript"
+  });
+  console.log("✏️  Updated title while unpublished");
+  console.log();
+
+  // 9. Publish again
+  post.publish("user_alice");
+  console.log("🚀 Re-published with fixes");
+  console.log();
+
+  // 10. Save everything
+  await postRepository.commit(post);
+  console.log(`💾 Saved ${post.version} events to storage\n`);
+
+  // 11. Retrieve from storage
+  const retrieved = await postRepository.findOne({
+    entityId: post.entityId
+  });
+
+  if (retrieved) {
+    console.log("✅ Retrieved from storage:");
+    console.log("   Title:", retrieved.title);
+    console.log("   Is published:", retrieved.isPublished);
+  }
+}
+
+blogWorkflow();
+```
+
+**Output:**
+```
+📝 Creating a new blog post...
+
+✅ Created post: post_xyz123
+   Title: Getting Started with Event Sourcing
+   Is draft: true
+
+✏️  Updated content
+
+❌ Cannot publish yet: Cannot publish post without content
+
+✏️  Updated content
+
+🚀 Published post!
+   Published at: 2024-01-15T10:30:00Z
+   Is published: true
+
+❌ Cannot edit published post: Cannot update published post. Unpublish it first.
+
+📤 Unpublished post
+
+✏️  Updated title while unpublished
+
+🚀 Re-published with fixes
+
+💾 Saved 6 events to storage
+
+✅ Retrieved from storage:
+   Title: Getting Started with Event Sourcing in TypeScript
+   Is published: true
+```
+
+## What You've Learned
+
+Congratulations! You've built a complete event-sourced entity with:
+
+- ✅ **Schema validation** - Type-safe events and state
+- ✅ **Business logic** - Rules that prevent invalid operations
+- ✅ **State management** - Pure reducers that handle events
+- ✅ **Audit trail** - Complete history of all changes
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Core Concepts"
+    description="Understand event sourcing patterns in depth"
+    href="/docs/core-concepts"
+  />
+  <Card
+    title="Storage Adapters"
+    description="Connect to a production database"
+    href="/docs/storage"
+  />
+  <Card
+    title="Plugins"
+    description="Add analytics, logging, and side effects"
+    href="/docs/plugins"
+  />
+  <Card
+    title="Testing Guide"
+    description="Learn how to test event-sourced entities"
+    href="/docs/guides/testing"
+  />
+</Cards>
+
+## Common Patterns
+
+### Soft Delete Pattern
+
+```typescript
+get isDeleted() {
+  return this.state.deletedAt !== null;
+}
+
+delete = mutation(this, (dispatch, userId: string) => {
+  if (this.isDeleted) {
+    throw new Error("Already deleted");
+  }
+  dispatch("entity:deleted", { deletedBy: userId });
+});
+
+restore = mutation(this, (dispatch) => {
+  if (!this.isDeleted) {
+    throw new Error("Not deleted");
+  }
+  dispatch("entity:restored", {});
+});
+```
+
+### Publish Workflow Pattern
+
+```typescript
+get canPublish() {
+  return !this.isPublished &&
+         !this.isDeleted &&
+         this.hasRequiredFields();
+}
+
+publish = mutation(this, (dispatch, userId: string) => {
+  if (!this.canPublish) {
+    throw new Error("Cannot publish in current state");
+  }
+  dispatch("entity:published", { publishedBy: userId });
+});
+```
+
+### Audit Trail Pattern
+
+```typescript
+// Store who did what
+event: {
+  created: v.object({
+    createdBy: v.string(),
+    // ...
+  }),
+  updated: v.object({
+    updatedBy: v.string(),
+    // ...
+  })
+}
+
+// Access in state
+state: v.object({
+  createdBy: v.string(),
+  createdAt: v.string(), // From event.eventCreatedAt
+  updatedBy: v.nullable(v.string()),
+  updatedAt: v.nullable(v.string()),
+})
+```

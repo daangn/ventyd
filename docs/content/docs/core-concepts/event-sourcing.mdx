@@ -1,0 +1,451 @@
+---
+title: Event Sourcing
+description: Understanding the event sourcing pattern and its benefits
+---
+
+# Event Sourcing
+
+Event sourcing is a architectural pattern that fundamentally changes how you store and think about application state. Instead of storing the current state of an entity, you store all the **events** that led to that state.
+
+## The Core Idea
+
+### Traditional Approach: State-Based Storage
+
+In most applications, you store only the current state:
+
+```
+User Table
+┌────────┬────────────┬────────────┐
+│ id     │ name       │ email      │
+├────────┼────────────┼────────────┤
+│ user-1 │ John Doe   │ john@...   │
+└────────┴────────────┴────────────┘
+```
+
+When a user updates their email, you overwrite the previous value. The history is lost.
+
+### Event Sourcing Approach: Event-Based Storage
+
+With event sourcing, you store every change as an immutable event:
+
+```
+Event Store
+┌──────────────────┬──────────────────┬───────────────────────┐
+│ event_id         │ event_name       │ body                  │
+├──────────────────┼──────────────────┼───────────────────────┤
+│ evt_001          │ user:created     │ {name: "John", ...}   │
+│ evt_002          │ user:name_updated│ {name: "Jane"}        │
+│ evt_003          │ user:email_updated│{email: "jane@..."}  │
+└──────────────────┴──────────────────┴───────────────────────┘
+```
+
+The current state is **derived** by replaying all events in order:
+
+```typescript
+let state = undefined;
+
+for (const event of events) {
+  state = reducer(state, event);
+}
+
+// state = { name: "Jane", email: "jane@..." }
+```
+
+## Why Event Sourcing?
+
+<Cards>
+  <Card
+    title="Complete Audit Trail"
+    description="Every change is recorded with who, what, when, and why"
+  />
+  <Card
+    title="Time Travel Debugging"
+    description="Reconstruct state at any point in history"
+  />
+  <Card
+    title="Event Replay"
+    description="Rebuild state or migrate to new schemas"
+  />
+  <Card
+    title="Multiple Read Models"
+    description="Create different views of the same data"
+  />
+  <Card
+    title="Temporal Queries"
+    description="Ask 'what was the state at time T?'"
+  />
+  <Card
+    title="Data Integrity"
+    description="No partial updates or inconsistent states"
+  />
+</Cards>
+
+### 1. Complete Audit Trail
+
+Every change is recorded as an immutable fact:
+
+```typescript
+// See the entire history of changes
+const user = await userRepository.findOne({ entityId: "user-123" });
+
+console.log(user.events);
+// Output:
+// [
+//   {
+//     eventId: "evt_001",
+//     eventName: "user:created",
+//     eventCreatedAt: "2024-01-15T10:00:00Z",
+//     body: { name: "John", email: "john@example.com" }
+//   },
+//   {
+//     eventId: "evt_002",
+//     eventName: "user:name_updated",
+//     eventCreatedAt: "2024-01-16T14:30:00Z",
+//     body: { name: "Jane" }
+//   },
+//   {
+//     eventId: "evt_003",
+//     eventName: "user:email_updated",
+//     eventCreatedAt: "2024-01-17T09:15:00Z",
+//     body: { email: "jane@example.com" }
+//   }
+// ]
+```
+
+This is invaluable for:
+- **Compliance & Auditing**: Prove what happened and when
+- **Debugging**: Understand exactly how bugs were introduced
+- **Analytics**: Track user behavior over time
+- **Forensics**: Investigate issues after they occur
+
+### 2. Time Travel Debugging
+
+Reconstruct state at any point in history to debug issues:
+
+```typescript
+import { defineReducer } from 'ventyd';
+
+// Get all events for a user
+const user = await userRepository.findOne({ entityId: "user-123" });
+const events = user.events;
+
+// See what state was after event #1
+const stateAfterEvent1 = events
+  .slice(0, 1)
+  .reduce((state, event) => reducer(state, event), undefined);
+
+console.log("State after first event:", stateAfterEvent1);
+// { name: "John", email: "john@example.com" }
+
+// See what state was after event #2
+const stateAfterEvent2 = events
+  .slice(0, 2)
+  .reduce((state, event) => reducer(state, event), undefined);
+
+console.log("State after second event:", stateAfterEvent2);
+// { name: "Jane", email: "john@example.com" }
+
+// Current state (after all events)
+console.log("Current state:", user.state);
+// { name: "Jane", email: "jane@example.com" }
+```
+
+This helps you:
+- Find when a bug was introduced
+- See intermediate states during complex operations
+- Understand causality between events
+
+### 3. Event Replay & Migration
+
+If you need to change how state is calculated, you can replay events with a new reducer:
+
+```typescript
+// Old reducer (has a bug)
+const oldReducer = defineReducer(schema, (state, event) => {
+  switch (event.eventName) {
+    case "user:created":
+      return {
+        name: event.body.name,
+        emailCount: 0 // BUG: doesn't track email changes
+      };
+    // ...
+  }
+});
+
+// New reducer (fixed)
+const newReducer = defineReducer(schema, (state, event) => {
+  switch (event.eventName) {
+    case "user:created":
+      return {
+        name: event.body.name,
+        emails: [event.body.email] // FIXED: properly tracks emails
+      };
+    case "user:email_updated":
+      return {
+        ...state,
+        emails: [...state.emails, event.body.email] // New logic
+      };
+    // ...
+  }
+});
+
+// Replay with new reducer
+const events = await getEvents("user", "user-123");
+const fixedState = events.reduce((state, event) => {
+  return newReducer(state, event);
+}, undefined);
+```
+
+This enables:
+- Schema evolution without data loss
+- Bug fixes retroactively applied to history
+- Database migrations
+- Creating multiple read models
+
+### 4. Debugging & Understanding Causality
+
+When something unexpected happens, you have the full context:
+
+```typescript
+// Problem: User's subscription status is wrong
+
+// Solution: Review the sequence of events
+const user = await userRepository.findOne({ entityId: "user-123" });
+
+user.events.forEach((event, index) => {
+  console.log(`Event ${index + 1}:`);
+  console.log(`  Time: ${event.eventCreatedAt}`);
+  console.log(`  Type: ${event.eventName}`);
+  console.log(`  Data: ${JSON.stringify(event.body)}`);
+});
+
+// Output:
+// Event 1:
+//   Time: 2024-01-15T10:00:00Z
+//   Type: subscription:created
+//   Data: {"tier":"free"}
+//
+// Event 2:
+//   Time: 2024-01-20T14:30:00Z
+//   Type: subscription:upgraded
+//   Data: {"tier":"pro"}
+//
+// Event 3:
+//   Time: 2024-01-22T09:15:00Z
+//   Type: subscription:downgraded
+//   Data: {"tier":"free"}
+//
+// Event 4:
+//   Time: 2024-01-23T16:45:00Z
+//   Type: subscription:cancelled
+//   Data: {}
+
+// Now you can trace exactly what happened and fix the issue
+```
+
+## How It Works in Ventyd
+
+Ventyd simplifies event sourcing with a clear workflow:
+
+
+  
+    ### Define Your Schema
+
+    Specify what events can happen and what state looks like:
+
+    ```typescript
+    const userSchema = defineSchema("user", {
+      schema: valibot({
+        event: {
+          created: v.object({
+            name: v.string(),
+            email: v.pipe(v.string(), v.email())
+          }),
+          name_updated: v.object({
+            name: v.string()
+          })
+        },
+        state: v.object({
+          name: v.string(),
+          email: v.string()
+        })
+      }),
+      initialEventName: "user:created"
+    });
+    ```
+  
+
+  
+    ### Create a Reducer
+
+    Define how events transform state:
+
+    ```typescript
+    const userReducer = defineReducer(userSchema, (prevState, event) => {
+      switch (event.eventName) {
+        case "user:created":
+          return {
+            name: event.body.name,
+            email: event.body.email
+          };
+        case "user:name_updated":
+          return {
+            ...prevState,
+            name: event.body.name
+          };
+        default:
+          return prevState;
+      }
+    });
+    ```
+  
+
+  
+    ### Create an Entity
+
+    Write business logic using mutations:
+
+    ```typescript
+    class User extends Entity(userSchema, userReducer) {
+      updateName = mutation(this, (dispatch, name: string) => {
+        dispatch("user:name_updated", { name });
+      });
+    }
+    ```
+  
+
+  
+    ### Set Up Storage
+
+    Connect to your database:
+
+    ```typescript
+    const userRepository = createRepository(User, {
+      adapter: mongoAdapter
+    });
+    ```
+  
+
+  
+    ### Use Your Entity
+
+    Create and modify entities, and events are automatically stored:
+
+    ```typescript
+    const user = User.create({
+      body: { name: "John", email: "john@example.com" }
+    });
+
+    user.updateName("Jane");
+
+    await userRepository.commit(user);
+    ```
+  
+
+
+## Advantages
+
+### ✅ Auditability
+Every change is recorded. You have a complete, immutable record of what happened.
+
+### ✅ Debugging
+Reconstruct state at any point in history. Find exactly when and why bugs occurred.
+
+### ✅ Testing
+Deterministic replay makes tests easier to write and understand.
+
+### ✅ Scalability
+You can create multiple read models optimized for different use cases.
+
+### ✅ Temporal Queries
+Ask questions like "What was the state on Jan 1?" or "How many status changes happened?"
+
+### ✅ No Lost Data
+You never lose information. Even if you delete current state, events remain.
+
+## Trade-offs & Challenges
+
+### ⚠️ Storage Space
+Events take more space than a single state record. Plan for larger storage needs.
+
+```typescript
+// Traditional: ~200 bytes per record
+// Event sourcing: ~200 bytes × number of events
+
+// Example: A user with 100 events = 20KB instead of 200 bytes
+// This is usually acceptable, but be mindful at scale
+```
+
+### ⚠️ Eventual Consistency
+Reading the current state requires replaying events, which takes time. Use snapshots for high-frequency queries.
+
+```typescript
+// Slow: Replay 1000 events
+const user = await userRepository.findOne({ entityId: "user-123" });
+
+// Fast: Use a cached snapshot
+const userSnapshot = await cache.get(`user:${entityId}`);
+```
+
+### ⚠️ Complexity
+Event sourcing adds conceptual complexity. Team members need to understand the pattern.
+
+### ⚠️ Schema Migrations
+Changing event or state schemas requires careful planning and migration logic.
+
+```typescript
+// When you change your schema, you may need to update all events
+// Ventyd helps with this through reducer evolution
+```
+
+## When to Use Event Sourcing
+
+### ✅ Good Fit
+- **Audit-critical systems**: Finance, healthcare, compliance
+- **Complex domain logic**: Orders, subscriptions, workflows
+- **Historical analysis**: Analytics, reporting, forensics
+- **Distributed systems**: Multiple services consuming the same events
+- **Temporal requirements**: "What was the state at time T?"
+
+### ❌ Not the Best Fit
+- **Simple CRUD apps**: Overkill for basic forms and lists
+- **High-frequency writes**: May need optimizations
+- **Real-time analytics**: Use streaming, not event replay
+
+## Common Misconceptions
+
+<Callout type="warning">
+**"Event sourcing means no database"**
+
+False. Event sourcing is a *pattern* for what you store, not a replacement for databases. Ventyd still uses adapters to store events in your database of choice (MongoDB, PostgreSQL, etc).
+</Callout>
+
+<Callout type="warning">
+**"Event sourcing is only for big companies"**
+
+False. Ventyd makes event sourcing practical for projects of any size. Start simple and add optimization (like snapshots) when needed.
+</Callout>
+
+<Callout type="warning">
+**"You need CQRS with event sourcing"**
+
+Not necessarily. CQRS and event sourcing are separate patterns. You can use event sourcing without CQRS, though they work well together.
+</Callout>
+
+## Key Takeaways
+
+- Event sourcing stores **all events** instead of just current state
+- State is **computed** by replaying events through a reducer
+- This enables **time travel**, **auditing**, and **debugging**
+- Events are **immutable** - they never change once created
+- You can **replay events** to fix bugs or migrate schemas
+- Ventyd makes event sourcing practical and type-safe
+
+<Callout type="info">
+**Next Steps**
+
+Once you understand event sourcing, explore how Ventyd implements it:
+- [Events](/docs/core-concepts/events) - Understanding event structure
+- [Reducers](/docs/core-concepts/reducers) - How state is computed
+- [Entities](/docs/core-concepts/entities) - Building domain objects
+</Callout>

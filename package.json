@@ -47,6 +47,9 @@
     "logo-dark.png",
     "dist"
   ],
+  "workspaces": [
+    "docs"
+  ],
   "scripts": {
     "build": "bunchee",
     "format": "biome check --write --unsafe .",

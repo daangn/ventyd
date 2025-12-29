@@ -1,0 +1,686 @@
+---
+title: Search Indexing Plugin
+description: Keep search indexes synchronized with entity state
+---
+
+# Search Indexing Plugin
+
+The Search Indexing Plugin automatically maintains search indexes as entities are updated, enabling fast full-text search and faceted navigation across your application.
+
+## Overview
+
+Search indexing provides:
+
+- Real-time index updates as entities change
+- Full-text search capabilities
+- Faceted navigation and filtering
+- Autocomplete and suggestions
+- Relevance scoring and ranking
+- Multi-field search support
+
+## Basic Implementation
+
+### Simple Search Index Plugin
+
+```typescript
+import type { Plugin } from 'ventyd';
+
+const searchIndexPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    await searchEngine.index({
+      id: `${entityName}:${entityId}`,
+      type: entityName,
+      document: state
+    });
+  }
+};
+```
+
+### Using with Repository
+
+```typescript
+import { createRepository } from 'ventyd';
+
+const userRepository = createRepository(User, {
+  adapter,
+  plugins: [searchIndexPlugin]
+});
+
+// Users are automatically indexed
+const user = User.create({ body: { email: 'john@example.com' } });
+user.updateProfile({ bio: 'Software Engineer' });
+await userRepository.commit(user);
+// User is indexed and searchable
+
+// Now searchable
+const results = await searchEngine.search('Software Engineer');
+```
+
+## Advanced Implementation
+
+### Elasticsearch Integration
+
+```typescript
+import { Client } from '@elastic/elasticsearch';
+
+const elasticsearchPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    const client = new Client({ node: process.env.ELASTICSEARCH_URL });
+
+    await client.index({
+      index: entityName,
+      id: entityId,
+      body: {
+        // Map state fields to searchable fields
+        ...state,
+        '@timestamp': new Date().toISOString(),
+        // Add computed fields for searching
+        fullText: generateFullText(state),
+        // Add facets for filtering
+        facets: extractFacets(state)
+      },
+      refresh: true // Make searchable immediately
+    });
+  }
+};
+
+function generateFullText(state: any): string {
+  return Object.values(state)
+    .filter(v => typeof v === 'string')
+    .join(' ');
+}
+
+function extractFacets(state: any) {
+  return {
+    status: state.status,
+    category: state.category,
+    tags: state.tags || []
+  };
+}
+```
+
+### Conditional Indexing
+
+Only index certain documents or fields:
+
+```typescript
+const selectiveIndexPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state, events }) {
+    // Only index published/active entities
+    if (state.status !== 'published' && state.status !== 'active') {
+      // Remove from index if previously indexed
+      await searchEngine.delete(`${entityName}:${entityId}`);
+      return;
+    }
+
+    // Extract only searchable fields
+    const indexableState = {
+      id: entityId,
+      name: state.name,
+      description: state.description,
+      tags: state.tags,
+      category: state.category,
+      createdAt: state.createdAt,
+      // Filter out sensitive data
+      // No passwords, tokens, or PII
+    };
+
+    await searchEngine.index({
+      id: `${entityName}:${entityId}`,
+      type: entityName,
+      document: indexableState
+    });
+  }
+};
+```
+
+### Faceted Search with Aggregations
+
+```typescript
+const facetedSearchPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    const facets = {
+      status: state.status,
+      priority: state.priority,
+      assignee: state.assignee,
+      tags: Array.isArray(state.tags) ? state.tags : [],
+      category: state.category,
+      createdMonth: new Date(state.createdAt).toISOString().slice(0, 7)
+    };
+
+    await searchEngine.index({
+      id: `${entityName}:${entityId}`,
+      type: entityName,
+      document: {
+        ...state,
+        facets,
+        indexed_at: new Date().toISOString()
+      }
+    });
+
+    // Update facet counts
+    await updateFacetCounts(entityName, facets);
+  }
+};
+
+async function updateFacetCounts(entityName: string, facets: any) {
+  const counts = await searchEngine.aggregateByFacets(entityName, facets);
+  await facetCache.set(`${entityName}:facets`, counts);
+}
+```
+
+## Real-World Examples
+
+### E-Commerce Product Search
+
+Index products for fast search and filtering:
+
+```typescript
+const productSearchPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    if (entityName !== 'product') return;
+
+    // Only index published products
+    if (state.status !== 'published') {
+      await elasticsearch.delete('products', entityId);
+      return;
+    }
+
+    await elasticsearch.index('products', entityId, {
+      // Searchable fields
+      name: state.name,
+      description: state.description,
+      sku: state.sku,
+
+      // Numeric fields for range queries
+      price: state.price,
+      stock: state.stock,
+
+      // Facets for filtering
+      category: state.category,
+      brand: state.brand,
+      color: state.color,
+      size: state.size,
+      materials: state.materials,
+
+      // Full-text search field
+      searchText: [
+        state.name,
+        state.description,
+        state.sku,
+        state.brand,
+        state.category
+      ].join(' '),
+
+      // Metadata
+      createdAt: state.createdAt,
+      updatedAt: state.updatedAt,
+      rating: state.averageRating,
+      reviews: state.reviewCount,
+
+      // For sorting
+      popularity: calculatePopularity(state),
+      relevance: calculateRelevance(state)
+    });
+
+    // Update product count cache
+    await updateProductCounts();
+  }
+};
+
+function calculatePopularity(state: any): number {
+  return (state.reviewCount || 0) + (state.viewCount || 0);
+}
+
+function calculateRelevance(state: any): number {
+  let score = 0;
+  if (state.stock > 0) score += 10;
+  if (state.averageRating >= 4) score += 5;
+  if (state.reviewCount > 100) score += 3;
+  return score;
+}
+```
+
+### Blog Post Search
+
+Index posts with author, tags, and content:
+
+```typescript
+const blogSearchPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    if (entityName !== 'post') return;
+
+    // Only index published posts
+    if (state.status !== 'published') {
+      await meilisearch.deleteDocument('posts', entityId);
+      return;
+    }
+
+    await meilisearch.addDocuments('posts', {
+      id: entityId,
+      title: state.title,
+      slug: state.slug,
+      content: state.content,
+      excerpt: state.excerpt,
+
+      // Author info
+      authorId: state.authorId,
+      authorName: state.authorName,
+
+      // Metadata
+      tags: state.tags,
+      category: state.category,
+      publishedAt: new Date(state.publishedAt).getTime(),
+      updatedAt: new Date(state.updatedAt).getTime(),
+
+      // Engagement metrics
+      views: state.viewCount,
+      likes: state.likeCount,
+      comments: state.commentCount,
+
+      // For relevance
+      featured: state.featured,
+      trending: calculateTrending(state)
+    });
+  }
+};
+
+function calculateTrending(state: any): boolean {
+  const hoursOld = (Date.now() - new Date(state.publishedAt).getTime()) / 3600000;
+  const engagementRate = state.viewCount / Math.max(hoursOld, 1);
+  return engagementRate > 100; // Arbitrary threshold
+}
+```
+
+### User Directory Search
+
+Search and filter users:
+
+```typescript
+const userDirectorySearchPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    if (entityName !== 'user') return;
+
+    // Only index active users
+    if (state.status !== 'active') {
+      await algolia.deleteObject('users', entityId);
+      return;
+    }
+
+    await algolia.saveObject('users', {
+      objectID: entityId,
+      firstName: state.firstName,
+      lastName: state.lastName,
+      email: state.email,
+      username: state.username,
+
+      // Full-text search
+      searchableName: `${state.firstName} ${state.lastName}`,
+
+      // Professional info
+      title: state.jobTitle,
+      department: state.department,
+      company: state.company,
+
+      // Filtering facets
+      department: state.department,
+      location: state.location,
+      skills: state.skills,
+      languages: state.languages,
+
+      // Profile
+      bio: state.bio,
+      avatar: state.avatarUrl,
+
+      // For relevance
+      joinedAt: new Date(state.createdAt).getTime(),
+      isVerified: state.isVerified,
+      completeness: calculateProfileCompleteness(state)
+    });
+  }
+};
+
+function calculateProfileCompleteness(state: any): number {
+  let score = 0;
+  const maxScore = 100;
+
+  if (state.firstName && state.lastName) score += 20;
+  if (state.jobTitle) score += 20;
+  if (state.bio) score += 20;
+  if (state.avatarUrl) score += 20;
+  if (state.skills && state.skills.length > 0) score += 20;
+
+  return Math.min(score, maxScore);
+}
+```
+
+## Integration Examples
+
+### Meilisearch Integration
+
+```typescript
+import { MeiliSearch } from 'meilisearch';
+
+const meilisearchPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    const client = new MeiliSearch({
+      host: process.env.MEILISEARCH_URL,
+      apiKey: process.env.MEILISEARCH_API_KEY
+    });
+
+    const index = client.index(entityName);
+
+    await index.addDocuments([
+      {
+        id: entityId,
+        ...state
+      }
+    ]);
+  }
+};
+```
+
+### Algolia Integration
+
+```typescript
+import algoliasearch from 'algoliasearch';
+
+const algoliaPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    const client = algoliasearch(
+      process.env.ALGOLIA_APP_ID,
+      process.env.ALGOLIA_API_KEY
+    );
+
+    const index = client.initIndex(entityName);
+
+    await index.saveObject({
+      objectID: entityId,
+      ...state
+    });
+  }
+};
+```
+
+### OpenSearch Integration
+
+```typescript
+import { Client } from '@opensearch-project/opensearch';
+
+const opensearchPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    const client = new Client({
+      node: process.env.OPENSEARCH_URL
+    });
+
+    await client.index({
+      index: entityName,
+      id: entityId,
+      body: state,
+      refresh: true
+    });
+  }
+};
+```
+
+### Typesense Integration
+
+```typescript
+import Typesense from 'typesense';
+
+const typesensePlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    const client = new Typesense.Client({
+      nodes: [
+        {
+          host: process.env.TYPESENSE_HOST,
+          port: parseInt(process.env.TYPESENSE_PORT || '8108'),
+          protocol: 'http'
+        }
+      ],
+      apiKey: process.env.TYPESENSE_API_KEY
+    });
+
+    const collection = client.collections(entityName);
+
+    await collection.documents().upsert({
+      id: entityId,
+      ...state
+    });
+  }
+};
+```
+
+## Best Practices
+
+### Do's
+
+```typescript
+// Do: Index asynchronously
+const asyncIndexPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    await searchEngine.indexAsync({
+      id: `${entityName}:${entityId}`,
+      document: state
+    });
+  }
+};
+
+// Do: Handle deletion and status changes
+const statusAwarePlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state, events }) {
+    const deleteEvent = events.some(e => e.eventName.includes('deleted'));
+
+    if (deleteEvent || state.status === 'archived') {
+      await searchEngine.delete(`${entityName}:${entityId}`);
+    } else {
+      await searchEngine.index({
+        id: `${entityName}:${entityId}`,
+        document: state
+      });
+    }
+  }
+};
+
+// Do: Extract relevant fields
+const fieldExtractionPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    const indexableFields = {
+      id: entityId,
+      name: state.name,
+      description: state.description,
+      tags: state.tags,
+      createdAt: state.createdAt
+      // Exclude: passwords, tokens, secrets
+    };
+
+    await searchEngine.index({
+      id: `${entityName}:${entityId}`,
+      document: indexableFields
+    });
+  }
+};
+
+// Do: Include facets for filtering
+const facetedPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    await searchEngine.index({
+      id: `${entityName}:${entityId}`,
+      document: {
+        ...state,
+        facets: {
+          category: state.category,
+          status: state.status,
+          tags: state.tags
+        }
+      }
+    });
+  }
+};
+```
+
+### Don'ts
+
+```typescript
+// Don't: Index sensitive information
+// BAD
+const badPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    // Indexing passwords and tokens!
+    await searchEngine.index({
+      id: `${entityName}:${entityId}`,
+      document: state
+    });
+  }
+};
+
+// GOOD: Filter sensitive fields
+const goodPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    const { password, token, secret, ...safeState } = state;
+    await searchEngine.index({
+      id: `${entityName}:${entityId}`,
+      document: safeState
+    });
+  }
+};
+
+// Don't: Block commit on indexing failures
+// BAD: Throwing blocks commit
+const blockingPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    // This can throw and block commit!
+    await searchEngine.index({
+      id: `${entityName}:${entityId}`,
+      document: state
+    });
+  }
+};
+
+// GOOD: Handle failures gracefully
+const nonBlockingPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    try {
+      await searchEngine.index({
+        id: `${entityName}:${entityId}`,
+        document: state
+      });
+    } catch (error) {
+      // Queue for retry, don't throw
+      await indexingQueue.enqueue({ entityName, entityId, state });
+      logger.warn('Indexing failed, queued for retry', { error });
+    }
+  }
+};
+
+// Don't: Index everything the same way
+// BAD: Naive full state indexing
+const naivePlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    // Just index everything
+    await searchEngine.index({
+      id: `${entityName}:${entityId}`,
+      document: state
+    });
+  }
+};
+
+// GOOD: Entity-specific indexing
+const smartPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    const indexConfig = getIndexConfig(entityName);
+    const indexableState = indexConfig.extractFields(state);
+
+    await searchEngine.index({
+      id: `${entityName}:${entityId}`,
+      document: indexableState
+    });
+  }
+};
+```
+
+## Performance Optimization
+
+### Batch Indexing
+
+```typescript
+// For high-volume updates, batch index operations
+const batchIndexPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    // Queue for batch indexing
+    await batchIndexQueue.add({
+      entityName,
+      entityId,
+      state
+    });
+
+    // Flush batch every N items or time interval
+    if (batchIndexQueue.size >= 100) {
+      const batch = batchIndexQueue.flush();
+      await searchEngine.bulkIndex(batch);
+    }
+  }
+};
+```
+
+### Selective Indexing
+
+```typescript
+// Only re-index if relevant fields changed
+const selectivePlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state, events }) {
+    const hasSearchableChanges = events.some(event => {
+      const searchableFields = ['name', 'description', 'tags', 'category'];
+      return Object.keys(event.body).some(field =>
+        searchableFields.includes(field)
+      );
+    });
+
+    if (hasSearchableChanges) {
+      await searchEngine.index({
+        id: `${entityName}:${entityId}`,
+        document: state
+      });
+    }
+  }
+};
+```
+
+## Testing
+
+Test search indexing with mocks:
+
+```typescript
+import { describe, it, expect, vi } from 'vitest';
+
+describe('Search Index Plugin', () => {
+  it('indexes entity state', async () => {
+    const indexMock = vi.fn();
+    const mockSearch = { index: indexMock };
+
+    const state = {
+      name: 'John Doe',
+      email: 'john@example.com'
+    };
+
+    await searchIndexPlugin.onCommitted({
+      entityName: 'user',
+      entityId: 'user-123',
+      events: [],
+      state
+    });
+
+    expect(indexMock).toHaveBeenCalledWith({
+      id: 'user:user-123',
+      type: 'user',
+      document: state
+    });
+  });
+});
+```
+
+## Related Documentation
+
+- [Plugins Overview](/docs/plugins)
+- [Event Broadcasting Plugin](/docs/plugins/event-broadcasting)
+- [Creating Custom Plugins](/docs/plugins/creating-plugins)
