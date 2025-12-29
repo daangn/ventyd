@@ -1,5 +1,5 @@
 {
-  "name": "docs",
+  "name": "@ventyd/docs",
   "private": true,
   "type": "module",
   "scripts": {
