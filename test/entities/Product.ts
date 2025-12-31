@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { defineReducer, defineSchema, Entity, mutation } from "../../src";
 import { typebox } from "../../src/typebox";
 

@@ -2702,24 +2702,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@sinclair/typebox@npm:^0.34.41":
-  version: 0.34.41
-  resolution: "@sinclair/typebox@npm:0.34.41"
-  checksum: 10c0/0fb61fc2f90c25e30b19b0096eb8ab3ccef401d3e2acfce42168ff0ee877ba5981c8243fa6b1035ac756cde95316724e978b2837dd642d7e4e095de03a999c90
-  languageName: node
-  linkType: hard
-
-"@sinclair/typemap@npm:^0.10.1":
-  version: 0.10.1
-  resolution: "@sinclair/typemap@npm:0.10.1"
-  peerDependencies:
-    "@sinclair/typebox": ^0.34.30
-    valibot: ^1.0.0
-    zod: ^3.24.1
-  checksum: 10c0/261af79397989ec9b33dbeb6427e0c6c514f396501142c2f62481c1795f38d55a7420822a81313ad461a68618f5608b48f8e92e8c3d8f932dfde3354a22fbf56
-  languageName: node
-  linkType: hard
-
 "@standard-schema/spec@npm:^1.0.0":
   version: 1.0.0
   resolution: "@standard-schema/spec@npm:1.0.0"
@@ -9479,6 +9461,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"typebox@npm:^1.0.71":
+  version: 1.0.71
+  resolution: "typebox@npm:1.0.71"
+  checksum: 10c0/96ac9dc784c318e55c11b4af551ca69e18ea14350c05bada72308ef5fa36566d5ef9324c54d2d6a57e0d6e6fd1cce582a5f5ca9ea990cd9c8d7b152fba4f3811
+  languageName: node
+  linkType: hard
+
 "typedarray@npm:^0.0.6":
   version: 0.0.6
   resolution: "typedarray@npm:0.0.6"
@@ -9742,8 +9731,6 @@ __metadata:
   dependencies:
     "@biomejs/biome": "npm:^2.2.4"
     "@changesets/cli": "npm:^2.29.7"
-    "@sinclair/typebox": "npm:^0.34.41"
-    "@sinclair/typemap": "npm:^0.10.1"
     "@standard-schema/spec": "npm:^1.0.0"
     "@types/better-sqlite3": "npm:^7.6.13"
     "@types/node": "npm:^24.5.2"
@@ -9754,22 +9741,20 @@ __metadata:
     just-sort-by: "npm:^3.2.0"
     mongodb: "npm:^6.20.0"
     mongodb-memory-server: "npm:^10.2.1"
+    typebox: "npm:^1.0.71"
     typescript: "npm:^5.9.2"
     valibot: "npm:^1.1.0"
     vitest: "npm:^3.2.4"
     zod: "npm:^3.24.1"
   peerDependencies:
-    "@sinclair/typebox": ^0.34.41
-    "@sinclair/typemap": ^0.10.1
     arktype: ">=2.0.0"
+    typebox: ">=1.0.0"
     valibot: ^1.0.0
     zod: ">=3.24.1"
   peerDependenciesMeta:
-    "@sinclair/typebox":
-      optional: true
-    "@sinclair/typemap":
-      optional: true
     arktype:
+      optional: true
+    typebox:
       optional: true
     valibot:
       optional: true
