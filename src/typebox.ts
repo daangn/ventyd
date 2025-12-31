@@ -3,13 +3,13 @@
  * This module provides official integration between TypeBox validation library and Ventyd's event sourcing system.
  */
 
-import { type Static, type TObject, Type } from "@sinclair/typebox";
-import { Compile } from "@sinclair/typemap";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { type Static, Type } from "typebox";
 import { standard } from "./standard";
+import { typeboxToStandardSchema } from "./typeboxToStandardSchema";
 import type { BaseEventType, SchemaInput, ValueOf } from "./types";
 
-type TypeboxEmptyObject = TObject<{}>;
+type TypeboxEmptyObject = Type.TObject<{}>;
 
 /**
  * Creates a TypeBox schema provider for Ventyd.
@@ -31,8 +31,7 @@ type TypeboxEmptyObject = TObject<{}>;
  * @remarks
  * The `typebox()` provider bridges TypeBox's validation capabilities with Ventyd's event sourcing system.
  * It automatically adds entity metadata and namespacing to event schemas, providing type-safe parsing
- * for events and state through discriminated unions. TypeBox schemas are compiled using `@sinclair/typemap`
- * to provide Standard Schema compatibility.
+ * for events and state through discriminated unions.
  *
  * @example
  * Basic usage:
@@ -122,7 +121,7 @@ export function typebox<
 
   type $$StateStandardDefinition = StandardSchemaV1<
     unknown,
-    Static<$$StateTypeboxDefinition>
+    Type.Static<$$StateTypeboxDefinition>
   >;
   type $$StateType = StandardSchemaV1.InferOutput<$$StateStandardDefinition>;
 
@@ -133,7 +132,7 @@ export function typebox<
 
     const event = Object.entries(args.event).reduce((acc, [key, body]) => {
       const eventName = `${context.entityName}${namespaceSeparator}${key}`;
-      const schema = Compile(
+      const schema = typeboxToStandardSchema(
         Type.Object({
           eventId: Type.String(),
           eventCreatedAt: Type.String(),
@@ -143,6 +142,7 @@ export function typebox<
           body,
         }),
       );
+
       return {
         // biome-ignore lint/performance/noAccumulatingSpread: readonly acc
         ...acc,
@@ -150,7 +150,7 @@ export function typebox<
       };
     }, {} as $$EventStandardDefinition);
 
-    const state = Compile(args.state);
+    const state = typeboxToStandardSchema(args.state);
 
     return standard<
       $$EntityName,
@@ -165,4 +165,4 @@ export function typebox<
   return input;
 }
 
-export { Type } from "@sinclair/typebox";
+export { Type } from "typebox";

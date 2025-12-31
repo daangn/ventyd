@@ -41,8 +41,7 @@ $ yarn add zod
 $ yarn add arktype
 
 # TypeBox
-# Note: @sinclair/typemap provides Standard Schema support
-$ yarn add @sinclair/typebox @sinclair/typemap
+$ yarn add typebox
 
 # Or use any Standard Schema-compliant library directly
 $ yarn add @standard-schema/spec
