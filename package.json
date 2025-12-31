@@ -48,7 +48,8 @@
     "dist"
   ],
   "workspaces": [
-    "docs"
+    ".",
+    "./docs"
   ],
   "scripts": {
     "build": "bunchee",
