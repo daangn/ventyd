@@ -2702,17 +2702,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@sinclair/typemap@npm:^0.10.1":
-  version: 0.10.1
-  resolution: "@sinclair/typemap@npm:0.10.1"
-  peerDependencies:
-    "@sinclair/typebox": ^0.34.30
-    valibot: ^1.0.0
-    zod: ^3.24.1
-  checksum: 10c0/261af79397989ec9b33dbeb6427e0c6c514f396501142c2f62481c1795f38d55a7420822a81313ad461a68618f5608b48f8e92e8c3d8f932dfde3354a22fbf56
-  languageName: node
-  linkType: hard
-
 "@standard-schema/spec@npm:^1.0.0":
   version: 1.0.0
   resolution: "@standard-schema/spec@npm:1.0.0"
@@ -9742,7 +9731,6 @@ __metadata:
   dependencies:
     "@biomejs/biome": "npm:^2.2.4"
     "@changesets/cli": "npm:^2.29.7"
-    "@sinclair/typemap": "npm:^0.10.1"
     "@standard-schema/spec": "npm:^1.0.0"
     "@types/better-sqlite3": "npm:^7.6.13"
     "@types/node": "npm:^24.5.2"
