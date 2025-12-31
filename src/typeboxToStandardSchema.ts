@@ -1,7 +1,7 @@
 // https://github.com/sinclairzx81/typebox/blob/main/example/standard/standard.ts
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type Type from "typebox";
+import type { Type } from "typebox";
 import { Validator } from "typebox/compile";
 import type { TLocalizedValidationError } from "typebox/error";
 import Guard from "typebox/guard";

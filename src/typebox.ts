@@ -4,7 +4,7 @@
  */
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { type Static, Type } from "typebox";
+import { Type } from "typebox";
 import { standard } from "./standard";
 import { typeboxToStandardSchema } from "./typeboxToStandardSchema";
 import type { BaseEventType, SchemaInput, ValueOf } from "./types";
@@ -111,7 +111,7 @@ export function typebox<
       unknown,
       BaseEventType & {
         eventName: `${$$EntityName}${$$NamespaceSeparator}${key}`;
-        body: Static<$$EventBodyTypeboxDefinition[key]>;
+        body: Type.Static<$$EventBodyTypeboxDefinition[key]>;
       }
     >;
   };
