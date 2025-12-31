@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.14.0
+
+### Minor Changes
+
+- aca4c86: feat: support `typebox` v1 (remove `@sinclair/typebox`, `@sinclair/typemap`)
+
 ## 1.13.0
 
 ### Minor Changes
