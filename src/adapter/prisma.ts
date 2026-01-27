@@ -40,7 +40,7 @@ export type VentydAdapterOptions<
   }): $$PrismaSnapshotRowInput;
 };
 
-export default function prismaAdapter<
+export function prismaAdapter<
   $$Schema,
   $$PrismaEventRow extends BaseEventTypeRow,
   $$PrismaEventRowInput,
