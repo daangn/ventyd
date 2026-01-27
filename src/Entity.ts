@@ -77,7 +77,9 @@ export function Entity<$$Schema extends DefaultSchema>(
 
   const entityName = schema[" $$entityName"] as $$EntityName;
   const initialEventName = schema[" $$initialEventName"] as $$InitialEventName;
-  const generateId = schema[" $$generateId"] as () => string;
+  const generateId = schema[" $$generateId"] as (
+    type: "eventId" | "entityId",
+  ) => string;
 
   // options
   const maxQueuedEvents = options?.maxQueuedEvents ?? 10000; // Default to 10000 events
@@ -119,7 +121,7 @@ export function Entity<$$Schema extends DefaultSchema>(
     constructor(args: EntityConstructorArgs<$$Schema>) {
       switch (args.type) {
         case "create": {
-          this.entityId = args.entityId ?? generateId();
+          this.entityId = args.entityId ?? generateId("entityId");
           type EventName = InferEventNameFromSchema<$$Schema>;
           type EventBody = InferEventBodyFromSchema<$$Schema, EventName>;
 
@@ -295,7 +297,7 @@ export function Entity<$$Schema extends DefaultSchema>(
       },
     ) {
       return {
-        eventId: options?.eventId ?? generateId(),
+        eventId: options?.eventId ?? generateId("eventId"),
         eventCreatedAt:
           options?.eventCreatedAt ?? this[" $$now"]().toISOString(),
         eventName,

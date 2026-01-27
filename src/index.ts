@@ -17,6 +17,7 @@ export type {
   InferSchemaFromEntityConstructor,
   InferStateFromSchema,
   Plugin,
+  ReadonlyEntity,
   Reducer,
   Repository,
   Schema,

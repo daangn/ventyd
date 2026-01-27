@@ -3,7 +3,7 @@
 
 import * as v from "valibot";
 import { describe, expect, test } from "vitest";
-import { defineReducer, defineSchema, Entity } from "../src";
+import { defineReducer, defineSchema, Entity, mutation } from "../src";
 import { valibot } from "../src/valibot"; // Use 'ventyd/valibot' in production
 import { Order } from "./entities/Order";
 import { User } from "./entities/User";
@@ -57,7 +57,7 @@ describe("Entity Unit Tests", () => {
           state: v.object({ value: v.string() }),
         }),
         initialEventName: "test:created",
-        generateId: () => `test-${idCounter++}`,
+        generateId: (type) => `${type}-${idCounter++}`,
       });
 
       const reducer = defineReducer(schema, (_, event) => {
@@ -67,7 +67,7 @@ describe("Entity Unit Tests", () => {
         return { value: "" };
       });
 
-      const TestEntity = Entity(schema, reducer);
+      class TestEntity extends Entity(schema, reducer) {}
 
       const entity1 = TestEntity.create({
         body: { value: "first" },
@@ -78,11 +78,109 @@ describe("Entity Unit Tests", () => {
 
       // generateId is called 3 times per entity:
       // 1) entityId, 2) validation eventId (discarded), 3) actual eventId
-      expect(entity1.entityId).toBe("test-1000");
-      expect(entity1[" $$queuedEvents"][0]?.eventId).toBe("test-1002");
+      expect(entity1.entityId).toBe("entityId-1000");
+      expect(entity1[" $$queuedEvents"][0]?.eventId).toBe("eventId-1002");
 
-      expect(entity2.entityId).toBe("test-1003");
-      expect(entity2[" $$queuedEvents"][0]?.eventId).toBe("test-1005");
+      expect(entity2.entityId).toBe("entityId-1003");
+      expect(entity2[" $$queuedEvents"][0]?.eventId).toBe("eventId-1005");
+    });
+
+    test("should generate different IDs for entityId and eventId types", () => {
+      const generatedIds: Array<{ type: string; id: string }> = [];
+
+      const schema = defineSchema("test", {
+        schema: valibot({
+          event: {
+            created: v.object({ value: v.string() }),
+          },
+          state: v.object({ value: v.string() }),
+        }),
+        initialEventName: "test:created",
+        generateId: (type) => {
+          const id = `${type}-${Date.now()}-${Math.random()}`;
+          generatedIds.push({ type, id });
+          return id;
+        },
+      });
+
+      const reducer = defineReducer(schema, (_, event) => {
+        if (event.eventName === "test:created") {
+          return { value: event.body.value };
+        }
+        return { value: "" };
+      });
+
+      class TestEntity extends Entity(schema, reducer) {}
+
+      const entity = TestEntity.create({
+        body: { value: "test" },
+      });
+
+      // Filter out the validation eventId (discarded)
+      const entityIdCalls = generatedIds.filter((g) => g.type === "entityId");
+      const eventIdCalls = generatedIds.filter((g) => g.type === "eventId");
+
+      // Should have at least 1 entityId call
+      expect(entityIdCalls.length).toBeGreaterThanOrEqual(1);
+      // Should have at least 2 eventId calls (1 for validation, 1 for actual event)
+      expect(eventIdCalls.length).toBeGreaterThanOrEqual(2);
+
+      // Verify entityId starts with "entityId-"
+      expect(entity.entityId).toMatch(/^entityId-/);
+      // Verify eventId starts with "eventId-"
+      expect(entity[" $$queuedEvents"][0]?.eventId).toMatch(/^eventId-/);
+    });
+
+    test("should pass correct type argument to generateId", () => {
+      const typeCallLog: Array<"entityId" | "eventId"> = [];
+
+      const schema = defineSchema("test", {
+        schema: valibot({
+          event: {
+            created: v.object({ value: v.string() }),
+            updated: v.object({ value: v.string() }),
+          },
+          state: v.object({ value: v.string() }),
+        }),
+        initialEventName: "test:created",
+        generateId: (type) => {
+          typeCallLog.push(type);
+          return crypto.randomUUID();
+        },
+      });
+
+      const reducer = defineReducer(schema, (prevState, event) => {
+        if (event.eventName === "test:created") {
+          return { value: event.body.value };
+        }
+        if (event.eventName === "test:updated") {
+          return { value: event.body.value };
+        }
+        return prevState;
+      });
+
+      class TestEntity extends Entity(schema, reducer) {
+        updateValue = mutation(this, (dispatch, value: string) => {
+          dispatch("test:updated", { value });
+        });
+      }
+
+      const entity = TestEntity.create({
+        body: { value: "initial" },
+      });
+
+      // Update using mutation method
+      entity.updateValue("updated");
+
+      // Verify that entityId was called once for entity creation
+      const entityIdCalls = typeCallLog.filter((t) => t === "entityId");
+      expect(entityIdCalls.length).toBe(1);
+
+      // Verify that eventId was called for events
+      // Should be 3 calls: validation for created, actual created, actual updated
+      // (validation only happens for initial event, not for regular dispatch)
+      const eventIdCalls = typeCallLog.filter((t) => t === "eventId");
+      expect(eventIdCalls.length).toBe(3);
     });
   });
 

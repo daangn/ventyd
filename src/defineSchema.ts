@@ -96,7 +96,7 @@ export function defineSchema<
   options: {
     schema: SchemaInput<$$EntityName, $$EventType, $$StateType>;
     initialEventName: $$InitialEventName;
-    generateId?: () => string;
+    generateId?: (type: "eventId" | "entityId") => string;
   },
 ): Schema<$$EntityName, $$EventType, $$StateType, $$InitialEventName> {
   const generateId = options.generateId ?? defaultGenerateId;

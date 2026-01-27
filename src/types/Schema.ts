@@ -13,7 +13,7 @@ export type Schema<
 > = ReturnType<SchemaInput<EntityName, EventType, StateType>> & {
   " $$entityName": EntityName;
   " $$initialEventName": InitialEventName;
-  " $$generateId": () => string;
+  " $$generateId": (type: "eventId" | "entityId") => string;
 };
 
 /**
