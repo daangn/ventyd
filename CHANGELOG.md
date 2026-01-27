@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.15.2
+
+### Patch Changes
+
+- 46b4cec: fix: update build tool bunchee -> tsdown
+
 ## 1.15.1
 
 ### Patch Changes
