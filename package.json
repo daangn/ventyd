@@ -37,6 +37,11 @@
       "types": "./dist/arktype.d.ts",
       "import": "./dist/arktype.js",
       "require": "./dist/arktype.cjs"
+    },
+    "./adapter/prisma": {
+      "types": "./dist/adapter/prisma.d.ts",
+      "import": "./dist/adapter/prisma.js",
+      "require": "./dist/adapter/prisma.cjs"
     }
   },
   "main": "./dist/index.js",

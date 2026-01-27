@@ -29,5 +29,6 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "types": ["vitest/globals"]
-  }
+  },
+  "exclude": ["dist"]
 }
