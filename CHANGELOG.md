@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.15.3
+
+### Patch Changes
+
+- a413c5b: feat: enhance `generateId()` by allowing type specification and export `ReadonlyEntity` type
+
 ## 1.15.2
 
 ### Patch Changes
