@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.15.0
+
+### Minor Changes
+
+- b6e27da: feat: prisma adapter (undocumented)
+
 ## 1.14.0
 
 ### Minor Changes
