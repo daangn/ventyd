@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.15.1
+
+### Patch Changes
+
+- bd3a09b: fix: prisma adapter default export -> named export
+
 ## 1.15.0
 
 ### Minor Changes
