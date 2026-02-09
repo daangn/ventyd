@@ -2763,7 +2763,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@sinclair/typebox@npm:^0.34.41":
+"@sinclair/typebox@npm:^0.34.48":
   version: 0.34.48
   resolution: "@sinclair/typebox@npm:0.34.48"
   checksum: 10c0/e09f26d8ad471a07ee64004eea7c4ec185349a1f61c03e87e71ea33cbe98e97959940076c2e52968a955ffd4c215bf5ba7035e77079511aac7935f25e989e29d
@@ -9633,7 +9633,7 @@ __metadata:
   dependencies:
     "@biomejs/biome": "npm:^2.2.4"
     "@changesets/cli": "npm:^2.29.7"
-    "@sinclair/typebox": "npm:^0.34.41"
+    "@sinclair/typebox": "npm:^0.34.48"
     "@sinclair/typemap": "npm:^0.10.1"
     "@standard-schema/spec": "npm:^1.0.0"
     "@types/better-sqlite3": "npm:^7.6.13"
