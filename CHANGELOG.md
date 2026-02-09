@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.16.0
+
+### Minor Changes
+
+- 06ffc6e: feat: typebox0 support (undocumented)
+
 ## 1.15.3
 
 ### Patch Changes
