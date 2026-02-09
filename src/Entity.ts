@@ -112,7 +112,6 @@ export function Entity<$$Schema extends DefaultSchema>(
     " $$queuedEvents": $$Event[] = [];
     " $$reducer": Reducer<$$Schema> = reducer;
     " $$readonly": boolean = false;
-    " $$listeners": (() => void)[] = [];
     " $$now": () => Date = () => new Date();
 
     // ----------------------
@@ -274,11 +273,6 @@ export function Entity<$$Schema extends DefaultSchema>(
 
       // 3. update state
       this[" $$state"] = reducer(prevState, event);
-
-      // 4. notify listeners
-      for (const listener of this[" $$listeners"]) {
-        listener();
-      }
     }
 
     " $$flush"() {
