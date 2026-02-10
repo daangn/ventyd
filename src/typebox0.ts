@@ -3,13 +3,32 @@
  * This module provides official integration between TypeBox validation library and Ventyd's event sourcing system.
  */
 
-import { type Static, type TObject, Type } from "@sinclair/typebox";
+import {
+  type Static,
+  type TLiteral,
+  type TObject,
+  type TString,
+  Type,
+} from "@sinclair/typebox";
 import { Compile } from "@sinclair/typemap";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+
 import { standard } from "./standard";
 import type { BaseEventType, SchemaInput, ValueOf } from "./types";
 
 type TypeboxEmptyObject = TObject<{}>;
+
+type TypeboxEventObject<
+  $$EventName extends string,
+  $$Body extends TypeboxEmptyObject,
+> = TObject<{
+  eventId: TString;
+  eventCreatedAt: TString;
+  entityName: TString;
+  entityId: TString;
+  eventName: TLiteral<$$EventName>;
+  body: $$Body;
+}>;
 
 /**
  * Creates a TypeBox schema provider for Ventyd.
@@ -104,6 +123,15 @@ export function typebox<
   state: $$StateTypeboxDefinition;
   namespaceSeparator?: $$NamespaceSeparator;
 }) {
+  type $$EventDefinition = {
+    [key in Extract<
+      keyof $$EventBodyTypeboxDefinition,
+      string
+    >]: TypeboxEventObject<
+      `${$$EntityName}${$$NamespaceSeparator}${key}`,
+      $$EventBodyTypeboxDefinition[key]
+    >;
+  };
   type $$EventStandardDefinition = {
     [key in Extract<
       keyof $$EventBodyTypeboxDefinition,
@@ -126,40 +154,61 @@ export function typebox<
   >;
   type $$StateType = StandardSchemaV1.InferOutput<$$StateStandardDefinition>;
 
-  type $$SchemaInput = SchemaInput<$$EntityName, $$EventType, $$StateType>;
+  type $$SchemaInput = SchemaInput<
+    $$EntityName,
+    $$EventType,
+    $$StateType,
+    {
+      event: $$EventDefinition;
+      state: $$StateTypeboxDefinition;
+    }
+  >;
 
   const input: $$SchemaInput = (context) => {
     const namespaceSeparator = args.namespaceSeparator ?? ":";
 
-    const event = Object.entries(args.event).reduce((acc, [key, body]) => {
-      const eventName = `${context.entityName}${namespaceSeparator}${key}`;
-      const schema = Compile(
-        Type.Object({
+    const eventSchema = Object.entries(args.event).reduce(
+      (acc, [key, body]) => {
+        const eventName = `${context.entityName}${namespaceSeparator}${key}`;
+        const schema = Type.Object({
           eventId: Type.String(),
           eventCreatedAt: Type.String(),
           entityName: Type.String(),
           entityId: Type.String(),
           eventName: Type.Literal(eventName),
           body,
-        }),
-      );
-      return {
-        // biome-ignore lint/performance/noAccumulatingSpread: readonly acc
-        ...acc,
-        [eventName]: schema,
-      };
-    }, {} as $$EventStandardDefinition);
+        });
+        return {
+          // biome-ignore lint/performance/noAccumulatingSpread: readonly acc
+          ...acc,
+          [eventName]: schema,
+        };
+      },
+      {} as $$EventDefinition,
+    );
+    const stateSchema = args.state;
 
-    const state = Compile(args.state);
-
-    return standard<
-      $$EntityName,
-      $$EventStandardDefinition,
-      $$StateStandardDefinition
-    >({
-      event,
-      state,
-    })(context);
+    return {
+      event: eventSchema,
+      state: stateSchema,
+      ...standard<
+        $$EntityName,
+        $$EventStandardDefinition,
+        $$StateStandardDefinition
+      >({
+        event: Object.entries(eventSchema).reduce(
+          (acc, [eventName, schema]) => {
+            return {
+              // biome-ignore lint/performance/noAccumulatingSpread: readonly acc
+              ...acc,
+              [eventName]: Compile(schema),
+            };
+          },
+          {} as $$EventStandardDefinition,
+        ),
+        state: Compile(stateSchema),
+      })(context),
+    };
   };
 
   return input;

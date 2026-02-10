@@ -91,24 +91,29 @@ export function defineSchema<
   $$EventType extends BaseEventType,
   $$StateType,
   $$InitialEventName extends $$EventType["eventName"],
+  $$Extension = {},
 >(
   entityName: $$EntityName,
   options: {
-    schema: SchemaInput<$$EntityName, $$EventType, $$StateType>;
+    schema: SchemaInput<$$EntityName, $$EventType, $$StateType, $$Extension>;
     initialEventName: $$InitialEventName;
     generateId?: (type: "eventId" | "entityId") => string;
   },
-): Schema<$$EntityName, $$EventType, $$StateType, $$InitialEventName> {
+): Schema<
+  $$EntityName,
+  $$EventType,
+  $$StateType,
+  $$InitialEventName,
+  $$Extension
+> {
   const generateId = options.generateId ?? defaultGenerateId;
 
-  const { parseEvent, parseEventByName, parseState } = options.schema({
+  const schemaInput = options.schema({
     entityName,
   });
 
   return {
-    parseEvent,
-    parseEventByName,
-    parseState,
+    ...schemaInput,
     " $$entityName": entityName,
     " $$initialEventName": options.initialEventName,
     " $$generateId": generateId,
