@@ -10,6 +10,21 @@ import type { BaseEventType, SchemaInput, ValueOf } from "./types";
 
 type ValibotEmptyObject = v.ObjectSchema<v.ObjectEntries, undefined>;
 
+type ValibotEventObject<
+  $$EventName extends string,
+  $$Body extends ValibotEmptyObject,
+> = v.ObjectSchema<
+  v.ObjectEntries & {
+    eventId: v.StringSchema<undefined>;
+    eventCreatedAt: v.StringSchema<undefined>;
+    entityName: v.StringSchema<undefined>;
+    entityId: v.StringSchema<undefined>;
+    eventName: v.LiteralSchema<$$EventName, undefined>;
+    body: $$Body;
+  },
+  undefined
+>;
+
 /**
  * Creates a Valibot schema provider for Ventyd.
  *
@@ -102,6 +117,16 @@ export function valibot<
   state: $$StateValibotDefinition;
   namespaceSeparator?: $$NamespaceSeparator;
 }) {
+  type $$EventValibotDefinition = {
+    [key in Extract<
+      keyof $$EventBodyValibotDefinition,
+      string
+    >]: ValibotEventObject<
+      `${$$EntityName}${$$NamespaceSeparator}${key}`,
+      $$EventBodyValibotDefinition[key]
+    >;
+  };
+
   type $$EventStandardDefinition = {
     [key in Extract<
       keyof $$EventBodyValibotDefinition,
@@ -124,38 +149,53 @@ export function valibot<
   >;
   type $$StateType = StandardSchemaV1.InferOutput<$$StateStandardDefinition>;
 
-  type $$SchemaInput = SchemaInput<$$EntityName, $$EventType, $$StateType>;
+  type $$SchemaInput = SchemaInput<
+    $$EntityName,
+    $$EventType,
+    $$StateType,
+    {
+      event: $$EventValibotDefinition;
+      state: $$StateValibotDefinition;
+    }
+  >;
 
   const input: $$SchemaInput = (context) => {
     const namespaceSeparator = args.namespaceSeparator ?? ":";
 
-    const event = Object.entries(args.event).reduce((acc, [key, body]) => {
-      const eventName = `${context.entityName}${namespaceSeparator}${key}`;
-      const schema = v.object({
-        eventId: v.string(),
-        eventCreatedAt: v.string(),
-        entityName: v.string(),
-        entityId: v.string(),
-        eventName: v.literal(eventName),
-        body,
-      });
-      return {
-        // biome-ignore lint/performance/noAccumulatingSpread: readonly acc
-        ...acc,
-        [eventName]: schema,
-      };
-    }, {} as $$EventStandardDefinition);
+    const eventSchema = Object.entries(args.event).reduce(
+      (acc, [key, body]) => {
+        const eventName = `${context.entityName}${namespaceSeparator}${key}`;
+        const schema = v.object({
+          eventId: v.string(),
+          eventCreatedAt: v.string(),
+          entityName: v.string(),
+          entityId: v.string(),
+          eventName: v.literal(eventName),
+          body,
+        });
+        return {
+          // biome-ignore lint/performance/noAccumulatingSpread: readonly acc
+          ...acc,
+          [eventName]: schema,
+        };
+      },
+      {} as $$EventValibotDefinition,
+    );
+    const stateSchema = args.state;
 
-    const state = args.state;
-
-    return standard<
-      $$EntityName,
-      $$EventStandardDefinition,
-      $$StateStandardDefinition
-    >({
-      event,
-      state,
-    })(context);
+    return {
+      event: eventSchema,
+      state: stateSchema,
+      ...standard<
+        $$EntityName,
+        $$EventStandardDefinition,
+        $$StateStandardDefinition
+      >({
+        // Valibot natively implements Standard Schema V1
+        event: eventSchema as unknown as $$EventStandardDefinition,
+        state: stateSchema,
+      })(context),
+    };
   };
 
   return input;

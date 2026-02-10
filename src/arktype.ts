@@ -8,7 +8,19 @@ import { type Type, type } from "arktype";
 import { standard } from "./standard";
 import type { BaseEventType, SchemaInput, ValueOf } from "./types";
 
-type ArktypeObjectType = Type<object, object>;
+type ArktypeEmptyObject = Type<object, object>;
+
+type ArktypeEventObject<
+  $$EventName extends string,
+  $$Body extends ArktypeEmptyObject,
+> = Type<{
+  eventId: string;
+  eventCreatedAt: string;
+  entityName: string;
+  entityId: string;
+  eventName: $$EventName;
+  body: $$Body["infer"];
+}>;
 
 /**
  * Creates an ArkType schema provider for Ventyd.
@@ -93,15 +105,25 @@ type ArktypeObjectType = Type<object, object>;
 export function arktype<
   $$EntityName extends string,
   $$EventBodyArktypeDefinition extends {
-    [eventName: string]: ArktypeObjectType;
+    [eventName: string]: ArktypeEmptyObject;
   },
-  $$StateArktypeDefinition extends ArktypeObjectType,
+  $$StateArktypeDefinition extends ArktypeEmptyObject,
   $$NamespaceSeparator extends string = ":",
 >(args: {
   event: $$EventBodyArktypeDefinition;
   state: $$StateArktypeDefinition;
   namespaceSeparator?: $$NamespaceSeparator;
 }) {
+  type $$EventArktypeDefinition = {
+    [key in Extract<
+      keyof $$EventBodyArktypeDefinition,
+      string
+    >]: ArktypeEventObject<
+      `${$$EntityName}${$$NamespaceSeparator}${key}`,
+      $$EventBodyArktypeDefinition[key]
+    >;
+  };
+
   type $$EventStandardDefinition = {
     [key in Extract<
       keyof $$EventBodyArktypeDefinition,
@@ -124,46 +146,56 @@ export function arktype<
   >;
   type $$StateType = StandardSchemaV1.InferOutput<$$StateStandardDefinition>;
 
-  type $$SchemaInput = SchemaInput<$$EntityName, $$EventType, $$StateType>;
+  type $$SchemaInput = SchemaInput<
+    $$EntityName,
+    $$EventType,
+    $$StateType,
+    {
+      event: $$EventArktypeDefinition;
+      state: $$StateArktypeDefinition;
+    }
+  >;
 
   const input: $$SchemaInput = (context) => {
     const namespaceSeparator = args.namespaceSeparator ?? ":";
 
-    const event = Object.entries(args.event).reduce((acc, [key, body]) => {
-      const eventName = `${context.entityName}${namespaceSeparator}${key}`;
+    const eventSchema = Object.entries(args.event).reduce(
+      (acc, [key, body]) => {
+        const eventName = `${context.entityName}${namespaceSeparator}${key}`;
 
-      // ArkType's intersection to combine base event and body
-      const arktypeSchema = type({
-        eventId: "string",
-        eventCreatedAt: "string",
-        entityName: "string",
-        entityId: "string",
-        eventName: `'${eventName}'`,
-        body,
-      });
+        // ArkType's intersection to combine base event and body
+        const arktypeSchema = type({
+          eventId: "string",
+          eventCreatedAt: "string",
+          entityName: "string",
+          entityId: "string",
+          eventName: `'${eventName}'`,
+          body,
+        });
 
-      // ArkType natively implements Standard Schema V1
-      // We can use it directly as a StandardSchemaV1
-      const standardSchema = arktypeSchema as unknown as StandardSchemaV1;
+        return {
+          // biome-ignore lint/performance/noAccumulatingSpread: readonly acc
+          ...acc,
+          [eventName]: arktypeSchema,
+        };
+      },
+      {} as $$EventArktypeDefinition,
+    );
+    const stateSchema = args.state;
 
-      return {
-        // biome-ignore lint/performance/noAccumulatingSpread: readonly acc
-        ...acc,
-        [eventName]: standardSchema,
-      };
-    }, {} as $$EventStandardDefinition);
-
-    // ArkType state schema is already a Standard Schema V1
-    const state = args.state as unknown as $$StateStandardDefinition;
-
-    return standard<
-      $$EntityName,
-      $$EventStandardDefinition,
-      $$StateStandardDefinition
-    >({
-      event,
-      state,
-    })(context);
+    return {
+      event: eventSchema,
+      state: stateSchema,
+      ...standard<
+        $$EntityName,
+        $$EventStandardDefinition,
+        $$StateStandardDefinition
+      >({
+        // ArkType natively implements Standard Schema V1
+        event: eventSchema as unknown as $$EventStandardDefinition,
+        state: stateSchema as unknown as $$StateStandardDefinition,
+      })(context),
+    };
   };
 
   return input;

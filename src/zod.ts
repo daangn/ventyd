@@ -10,6 +10,18 @@ import type { BaseEventType, SchemaInput, ValueOf } from "./types";
 
 type ZodEmptyObject = z.ZodObject<z.ZodRawShape>;
 
+type ZodEventObject<
+  $$EventName extends string,
+  $$Body extends ZodEmptyObject,
+> = z.ZodObject<{
+  eventId: z.ZodString;
+  eventCreatedAt: z.ZodString;
+  entityName: z.ZodString;
+  entityId: z.ZodString;
+  eventName: z.ZodLiteral<$$EventName>;
+  body: $$Body;
+}>;
+
 /**
  * Creates a Zod schema provider for Ventyd.
  *
@@ -102,6 +114,13 @@ export function zod<
   state: $$StateZodDefinition;
   namespaceSeparator?: $$NamespaceSeparator;
 }) {
+  type $$EventZodDefinition = {
+    [key in Extract<keyof $$EventBodyZodDefinition, string>]: ZodEventObject<
+      `${$$EntityName}${$$NamespaceSeparator}${key}`,
+      $$EventBodyZodDefinition[key]
+    >;
+  };
+
   type $$EventStandardDefinition = {
     [key in Extract<keyof $$EventBodyZodDefinition, string>]: StandardSchemaV1<
       unknown,
@@ -121,45 +140,56 @@ export function zod<
   >;
   type $$StateType = StandardSchemaV1.InferOutput<$$StateStandardDefinition>;
 
-  type $$SchemaInput = SchemaInput<$$EntityName, $$EventType, $$StateType>;
+  type $$SchemaInput = SchemaInput<
+    $$EntityName,
+    $$EventType,
+    $$StateType,
+    {
+      event: $$EventZodDefinition;
+      state: $$StateZodDefinition;
+    }
+  >;
 
   const input: $$SchemaInput = (context) => {
     const namespaceSeparator = args.namespaceSeparator ?? ":";
 
-    const event = Object.entries(args.event).reduce((acc, [key, body]) => {
-      const eventName = `${context.entityName}${namespaceSeparator}${key}`;
+    const eventSchema = Object.entries(args.event).reduce(
+      (acc, [key, body]) => {
+        const eventName = `${context.entityName}${namespaceSeparator}${key}`;
 
-      // Zod natively implements Standard Schema V1
-      const zodSchema = z.object({
-        eventId: z.string(),
-        eventCreatedAt: z.string(),
-        entityName: z.string(),
-        entityId: z.string(),
-        eventName: z.literal(eventName),
-        body,
-      });
+        // Zod natively implements Standard Schema V1
+        const zodSchema = z.object({
+          eventId: z.string(),
+          eventCreatedAt: z.string(),
+          entityName: z.string(),
+          entityId: z.string(),
+          eventName: z.literal(eventName),
+          body,
+        });
 
-      // Zod schemas can be used directly as Standard Schema V1
-      const standardSchema = zodSchema as unknown as StandardSchemaV1;
+        return {
+          // biome-ignore lint/performance/noAccumulatingSpread: readonly acc
+          ...acc,
+          [eventName]: zodSchema,
+        };
+      },
+      {} as $$EventZodDefinition,
+    );
+    const stateSchema = args.state;
 
-      return {
-        // biome-ignore lint/performance/noAccumulatingSpread: readonly acc
-        ...acc,
-        [eventName]: standardSchema,
-      };
-    }, {} as $$EventStandardDefinition);
-
-    // Zod state schema is already a Standard Schema V1
-    const state = args.state as unknown as $$StateStandardDefinition;
-
-    return standard<
-      $$EntityName,
-      $$EventStandardDefinition,
-      $$StateStandardDefinition
-    >({
-      event,
-      state,
-    })(context);
+    return {
+      event: eventSchema,
+      state: stateSchema,
+      ...standard<
+        $$EntityName,
+        $$EventStandardDefinition,
+        $$StateStandardDefinition
+      >({
+        // Zod natively implements Standard Schema V1
+        event: eventSchema as unknown as $$EventStandardDefinition,
+        state: stateSchema as unknown as $$StateStandardDefinition,
+      })(context),
+    };
   };
 
   return input;
