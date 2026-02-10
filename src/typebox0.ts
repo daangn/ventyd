@@ -123,7 +123,7 @@ export function typebox<
   state: $$StateTypeboxDefinition;
   namespaceSeparator?: $$NamespaceSeparator;
 }) {
-  type $$EventDefinition = {
+  type $$EventTypeboxDefinition = {
     [key in Extract<
       keyof $$EventBodyTypeboxDefinition,
       string
@@ -132,6 +132,7 @@ export function typebox<
       $$EventBodyTypeboxDefinition[key]
     >;
   };
+
   type $$EventStandardDefinition = {
     [key in Extract<
       keyof $$EventBodyTypeboxDefinition,
@@ -159,7 +160,7 @@ export function typebox<
     $$EventType,
     $$StateType,
     {
-      event: $$EventDefinition;
+      event: $$EventTypeboxDefinition;
       state: $$StateTypeboxDefinition;
     }
   >;
@@ -184,7 +185,7 @@ export function typebox<
           [eventName]: schema,
         };
       },
-      {} as $$EventDefinition,
+      {} as $$EventTypeboxDefinition,
     );
     const stateSchema = args.state;
 
