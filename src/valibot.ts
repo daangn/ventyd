@@ -14,7 +14,7 @@ type ValibotEventObject<
   $$EventName extends string,
   $$Body extends ValibotEmptyObject,
 > = v.ObjectSchema<
-  v.ObjectEntries & {
+  {
     eventId: v.StringSchema<undefined>;
     eventCreatedAt: v.StringSchema<undefined>;
     entityName: v.StringSchema<undefined>;
