@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.17.0
+
+### Minor Changes
+
+- e72280e: feat: export event, state schema (schema.event, schema.state)
+
 ## 1.16.0
 
 ### Minor Changes
