@@ -10,7 +10,8 @@ export type Schema<
   EventType extends BaseEventType,
   StateType,
   InitialEventName extends EventType["eventName"],
-> = ReturnType<SchemaInput<EntityName, EventType, StateType>> & {
+  Extension = {},
+> = ReturnType<SchemaInput<EntityName, EventType, StateType, Extension>> & {
   " $$entityName": EntityName;
   " $$initialEventName": InitialEventName;
   " $$generateId": (type: "eventId" | "entityId") => string;
@@ -101,4 +102,4 @@ export type InferEntityNameFromSchema<T> = T extends {
  * Default schema type
  * @internal
  */
-export type DefaultSchema = Schema<string, BaseEventType, {}, string>;
+export type DefaultSchema = Schema<string, BaseEventType, {}, string, {}>;
