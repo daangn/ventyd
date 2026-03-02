@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.18.0
+
+### Minor Changes
+
+- 002457f: feat: `migrate` api for event versioning
+
 ## 1.17.0
 
 ### Minor Changes
