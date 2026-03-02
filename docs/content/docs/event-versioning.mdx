@@ -24,7 +24,42 @@ Once an event is in your event store, you can't change its structure. You need s
 ## Versioning Strategies
 
 <Accordions>
-  <Accordion title="Strategy 1: Event Name Versioning">
+  <Accordion title="Strategy 1: Upcasting with migrate option">
+    Use the built-in `migrate` option in `createRepository` to transform old events before schema validation.
+
+    ```typescript
+    const userRepository = createRepository(User, {
+      adapter,
+      migrate(rawEvent) {
+        // Rename legacy event name to the current one
+        if (rawEvent.eventName === "user:created") {
+          return {
+            ...rawEvent,
+            eventName: "user:created_v2",
+            body: {
+              ...rawEvent.body,
+              name: rawEvent.body.name || "Unknown",  // Add missing field
+            },
+          };
+        }
+        return rawEvent;
+      },
+    });
+    ```
+
+    The `migrate` function runs on each raw event **before** schema validation, so only current event names need to be registered in the schema. Legacy event names can be removed from the schema entirely.
+
+    **Pros:**
+    - Single source of truth for migration logic
+    - No need to keep legacy schemas registered
+    - Centralized transformation logic
+
+    **Cons:**
+    - Performance overhead (transformation on every load)
+    - Can be complex with many migrations
+  </Accordion>
+
+  <Accordion title="Strategy 2: Event Name Versioning">
     Create new event names for schema changes.
 
     ```typescript
@@ -73,52 +108,6 @@ Once an event is in your event store, you can't change its structure. You need s
     **Cons:**
     - Event name proliferation
     - Reducer becomes complex with many versions
-  </Accordion>
-
-  <Accordion title="Strategy 2: Upcasting">
-    Transform old events to new format when loading.
-
-    ```typescript
-    interface EventUpcast {
-      from: string;
-      to: string;
-      transform: (body: any) => any;
-    }
-
-    const upcasts: EventUpcast[] = [
-      {
-        from: "user:created",
-        to: "user:created",
-        transform: (body) => ({
-          ...body,
-          name: body.name || "Unknown"  // Add missing field
-        })
-      }
-    ];
-
-    // Apply upcasts when loading events
-    function applyUpcasts(events: Event[]): Event[] {
-      return events.map(event => {
-        const upcast = upcasts.find(u => u.from === event.eventName);
-        if (upcast) {
-          return {
-            ...event,
-            body: upcast.transform(event.body)
-          };
-        }
-        return event;
-      });
-    }
-    ```
-
-    **Pros:**
-    - Single event name
-    - Simpler reducer
-    - Centralized transformation logic
-
-    **Cons:**
-    - Performance overhead (transformation on every load)
-    - Can be complex with many migrations
   </Accordion>
 
   <Accordion title="Strategy 3: Hybrid Approach">
@@ -199,15 +188,42 @@ event: {
 // Old: "userName"
 // New: "name"
 
-// Use upcast to transform
-const upcast = {
-  from: "user:created",
-  transform: (body) => ({
-    ...body,
-    name: body.userName,  // Rename
-    userName: undefined   // Remove old
-  })
-};
+// Use the migrate option to transform on load
+const userRepository = createRepository(User, {
+  adapter,
+  migrate(rawEvent) {
+    if (rawEvent.eventName === "user:created") {
+      return {
+        ...rawEvent,
+        body: {
+          ...rawEvent.body,
+          name: rawEvent.body.userName,  // Rename
+          userName: undefined,           // Remove old
+        },
+      };
+    }
+    return rawEvent;
+  },
+});
+```
+
+### Renaming Event Names
+
+Use `migrate` to upcast a legacy event name to the current one, so the old name can be removed from the schema.
+
+```typescript
+// Old event stored in DB: "user:profile_updated_v1"
+// Current schema only has: "user:profile_updated"
+
+const userRepository = createRepository(User, {
+  adapter,
+  migrate(rawEvent) {
+    if (rawEvent.eventName === "user:profile_updated_v1") {
+      return { ...rawEvent, eventName: "user:profile_updated" };
+    }
+    return rawEvent;
+  },
+});
 ```
 
 ## Best Practices
@@ -250,6 +266,28 @@ describe('Event versioning', () => {
     const state = reducer(undefined, newEvent);
     expect(state.email).toBe('test@example.com');
     expect(state.name).toBe('Test');
+  });
+
+  it('upcasts legacy events via migrate option', async () => {
+    // Without migrate: schema validation throws on the unknown event name
+    const repoWithoutMigrate = createRepository(User, { adapter });
+    await expect(
+      repoWithoutMigrate.findOne({ entityId: 'user-with-legacy-events' }),
+    ).rejects.toThrow();
+
+    // With migrate: upcast old event name before validation
+    const repoWithMigrate = createRepository(User, {
+      adapter,
+      migrate(rawEvent) {
+        if (rawEvent.eventName === 'user:profile_updated_v1') {
+          return { ...rawEvent, eventName: 'user:profile_updated' };
+        }
+        return rawEvent;
+      },
+    });
+
+    const user = await repoWithMigrate.findOne({ entityId: 'user-with-legacy-events' });
+    expect(user?.nickname).toBe('Updated');
   });
 });
 ```

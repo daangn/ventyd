@@ -651,7 +651,9 @@ getAllAdapterFactories().forEach((factory) => {
 
         // Edit draft
         article.updateTitle("My Awesome First Article");
-        article.updateContent("This is my awesome first article with more details");
+        article.updateContent(
+          "This is my awesome first article with more details",
+        );
         article.updateTags(["first", "intro", "awesome"]);
 
         // Publish
