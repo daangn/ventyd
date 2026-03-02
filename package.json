@@ -69,35 +69,35 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@standard-schema/spec": "^1.0.0",
+    "@standard-schema/spec": "^1.1.0",
     "just-sort-by": "^3.2.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.2.4",
-    "@changesets/cli": "^2.29.7",
+    "@biomejs/biome": "^2.4.4",
+    "@changesets/cli": "^2.29.8",
     "@sinclair/typebox": "^0.34.48",
     "@sinclair/typemap": "^0.10.1",
     "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "^24.5.2",
+    "@types/node": "^24.11.0",
     "@vitest/coverage-v8": "3.2.4",
-    "arktype": "^2.1.26",
-    "better-sqlite3": "^12.4.1",
-    "mongodb": "^6.20.0",
-    "mongodb-memory-server": "^10.2.1",
-    "tsdown": "^0.20.1",
-    "typebox": "^1.0.71",
-    "typescript": "^5.9.2",
-    "valibot": "^1.1.0",
+    "arktype": "^2.1.29",
+    "better-sqlite3": "^12.6.2",
+    "mongodb": "^6.21.0",
+    "mongodb-memory-server": "^10.4.3",
+    "tsdown": "0.20.1",
+    "typebox": "^1.1.5",
+    "typescript": "^5.9.3",
+    "valibot": "^1.2.0",
     "vitest": "^3.2.4",
-    "zod": "^3.24.1"
+    "zod": "^3.25.76"
   },
   "peerDependencies": {
     "@sinclair/typebox": "^0.34.41",
     "@sinclair/typemap": "^0.10.1",
-    "arktype": ">=2.0.0",
-    "typebox": ">=1.0.0",
-    "valibot": "^1.0.0",
-    "zod": ">=3.24.1"
+    "arktype": "^2",
+    "typebox": "^1",
+    "valibot": "^1",
+    "zod": "^3"
   },
   "peerDependenciesMeta": {
     "@sinclair/typebox": {
