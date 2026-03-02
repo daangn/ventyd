@@ -1,6 +1,7 @@
 import sortBy from "just-sort-by";
 import type {
   Adapter,
+  BaseEventType,
   ConstructorReturnType,
   DefaultSchema,
   Entity,
@@ -131,6 +132,29 @@ export function createRepository<
       error: unknown,
       plugin: Plugin<InferSchemaFromEntityConstructor<$$EntityConstructor>>,
     ) => void;
+    /**
+     * Optional function to upcast legacy events before schema validation.
+     *
+     * @remarks
+     * Use this to migrate old event versions stored in the database into the
+     * current event format, without needing to keep legacy schemas registered.
+     * The function runs on each raw event before `parseEvent` validation, so
+     * only current event names need to be registered in the schema.
+     *
+     * @example
+     * ```typescript
+     * const userRepository = createRepository(User, {
+     *   adapter,
+     *   migrate(rawEvent) {
+     *     if (rawEvent.eventName === "user:profile_updated_v1") {
+     *       return { ...rawEvent, eventName: "user:profile_updated" };
+     *     }
+     *     return rawEvent;
+     *   },
+     * });
+     * ```
+     */
+    migrate?: (rawEvent: BaseEventType) => BaseEventType;
   },
 ): Repository<ConstructorReturnType<$$EntityConstructor>> {
   type $$Schema = InferSchemaFromEntityConstructor<$$EntityConstructor>;
@@ -148,11 +172,16 @@ export function createRepository<
         entityId,
       });
 
-      // 2. validate and sort events from adapter using the schema
-      for (const rawEvent of rawEvents) {
-        _schema.parseEvent(rawEvent);
+      // 2. migrate + validate and sort events from adapter using the schema
+      const migrate = args.migrate ?? ((e) => e);
+      const migratedEvents = rawEvents
+        .map((e) => e as BaseEventType)
+        .map(migrate) as typeof rawEvents;
+
+      for (const event of migratedEvents) {
+        _schema.parseEvent(event);
       }
-      const events = sortBy(rawEvents, "eventCreatedAt");
+      const events = sortBy(migratedEvents, "eventCreatedAt");
 
       if (events.length === 0) {
         return null;

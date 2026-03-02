@@ -358,6 +358,56 @@ getAllAdapterFactories().forEach((factory) => {
         expect(migratedUser?.bio).toBe("Migrated from v1");
       });
 
+      test("should upcast legacy events via migrate option", async () => {
+        // Simulate DB having events with an old name that no longer exists in the schema
+        await adapter.commitEvents({
+          entityName: "user",
+          entityId: "migrate-test-user",
+          events: [
+            {
+              eventId: "evt-1",
+              eventName: "user:created",
+              eventCreatedAt: "2023-01-01T00:00:00.000Z",
+              entityId: "migrate-test-user",
+              entityName: "user",
+              body: { nickname: "MigrateUser", email: "migrate@test.com" },
+            },
+            {
+              eventId: "evt-2",
+              eventName: "user:profile_updated_v1", // old event name, not in schema
+              eventCreatedAt: "2023-06-01T00:00:00.000Z",
+              entityId: "migrate-test-user",
+              entityName: "user",
+              body: { nickname: "Updated" },
+            },
+          ] as any,
+          state: {} as any,
+        });
+
+        // Without migrate: schema validation throws on the unknown event name
+        const repoWithoutMigrate = createRepository(User, { adapter });
+        await expect(
+          repoWithoutMigrate.findOne({ entityId: "migrate-test-user" }),
+        ).rejects.toThrow();
+
+        // With migrate: upcast v1 → current before validation, findOne succeeds
+        const repoWithMigrate = createRepository(User, {
+          adapter,
+          migrate(rawEvent) {
+            if (rawEvent.eventName === "user:profile_updated_v1") {
+              return { ...rawEvent, eventName: "user:profile_updated" };
+            }
+            return rawEvent;
+          },
+        });
+
+        const user = await repoWithMigrate.findOne({
+          entityId: "migrate-test-user",
+        });
+        expect(user?.nickname).toBe("Updated");
+        expect(user?.email).toBe("migrate@test.com");
+      });
+
       test("should preserve chronological event order", async () => {
         const userRepo = createRepository(User, {
           adapter,
