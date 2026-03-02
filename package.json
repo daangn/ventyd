@@ -79,7 +79,7 @@
     "@sinclair/typemap": "^0.10.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.11.0",
-    "@vitest/coverage-v8": "3.2.4",
+    "@vitest/coverage-v8": "4.0.18",
     "arktype": "^2.1.29",
     "better-sqlite3": "^12.6.2",
     "mongodb": "^6.21.0",
@@ -88,7 +88,7 @@
     "typebox": "^1.1.5",
     "typescript": "^5.9.3",
     "valibot": "^1.2.0",
-    "vitest": "^3.2.4",
+    "vitest": "^4.0.18",
     "zod": "^3.25.76"
   },
   "peerDependencies": {
