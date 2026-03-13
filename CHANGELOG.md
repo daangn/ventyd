@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.18.1
+
+### Patch Changes
+
+- 0033c1a: detailed validation faield error
+
 ## 1.18.0
 
 ### Minor Changes
