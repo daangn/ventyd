@@ -76,13 +76,12 @@ export function standard<
         const record = input !== null && typeof input === "object" ? (input as Record<string, unknown>) : null;
         const eventName = typeof record?.eventName === "string" ? record.eventName : undefined;
 
-        const availableEvents = Object.keys(args.event).join(", ");
-
         if (!eventName) {
-          throw new Error(`Validation failed: eventName is missing. Available events: ${availableEvents}`);
+          throw new Error("Validation failed: eventName is missing");
         }
 
         if (!args.event[eventName]) {
+          const availableEvents = Object.keys(args.event).join(", ");
           throw new Error(`Validation failed: event "${eventName}" is not declared. Available events: ${availableEvents}`);
         }
 
