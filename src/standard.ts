@@ -73,29 +73,20 @@ export function standard<
   return (context) => {
     return {
       parseEvent(input) {
-        // Try to extract eventName from input for better error messages
-        const eventName =
-          input !== null &&
-          typeof input === "object" &&
-          "eventName" in input &&
-          typeof (input as Record<string, unknown>).eventName === "string"
-            ? ((input as Record<string, unknown>).eventName as string)
-            : undefined;
+        const record = input !== null && typeof input === "object" ? (input as Record<string, unknown>) : null;
+        const eventName = typeof record?.eventName === "string" ? record.eventName : undefined;
 
-        if (eventName && args.event[eventName]) {
-          return standardValidate(args.event[eventName], input, eventName) as $$EventType;
+        const availableEvents = Object.keys(args.event).join(", ");
+
+        if (!eventName) {
+          throw new Error(`Validation failed: eventName is missing. Available events: ${availableEvents}`);
         }
 
-        const errors: string[] = [];
-        for (const [name, eventSchema] of Object.entries(args.event)) {
-          try {
-            return standardValidate(eventSchema, input, name);
-          } catch (e) {
-            errors.push(e instanceof Error ? e.message : String(e));
-          }
+        if (!args.event[eventName]) {
+          throw new Error(`Validation failed: event "${eventName}" is not declared. Available events: ${availableEvents}`);
         }
 
-        throw new Error(errors.join("\n\n"));
+        return standardValidate(args.event[eventName], input, eventName) as $$EventType;
       },
       parseEventByName<K extends $$EventType["eventName"]>(
         eventName: K,

@@ -299,7 +299,7 @@ describe("Standard Schema Provider", () => {
           entityId: "usr-123",
           body: {},
         });
-      }).toThrow("Validation failed");
+      }).toThrow('event "user:deleted" is not declared');
     });
   });
 
@@ -413,7 +413,7 @@ describe("Standard Schema Provider", () => {
       expect(errorMessage).toContain("body.email");
     });
 
-    test("parseEvent should collect errors from all schemas when eventName is unknown", () => {
+    test("parseEvent should throw when eventName is undeclared", () => {
       const schema = defineSchema("user", {
         schema: standard({
           event: {
@@ -439,26 +439,19 @@ describe("Standard Schema Provider", () => {
         initialEventName: "user:created",
       });
 
-      let errorMessage = "";
-      try {
+      expect(() => {
         schema.parseEvent({
           eventId: "evt-123",
-          eventName: "user:deleted", // unknown event
+          eventName: "user:deleted",
           eventCreatedAt: new Date().toISOString(),
           entityName: "user",
           entityId: "usr-123",
           body: {},
         });
-      } catch (e) {
-        errorMessage = (e as Error).message;
-      }
-
-      // Should include errors from both schemas
-      expect(errorMessage).toContain('Validation failed: "user:created"');
-      expect(errorMessage).toContain('Validation failed: "user:updated"');
+      }).toThrow('event "user:deleted" is not declared');
     });
 
-    test("parseEvent should collect all schema errors when input has no eventName", () => {
+    test("parseEvent should throw when eventName is missing", () => {
       const schema = defineSchema("user", {
         schema: standard({
           event: {
@@ -478,7 +471,7 @@ describe("Standard Schema Provider", () => {
 
       expect(() => {
         schema.parseEvent({ someRandomField: "value" });
-      }).toThrow("Validation failed");
+      }).toThrow("eventName is missing");
     });
   });
 
