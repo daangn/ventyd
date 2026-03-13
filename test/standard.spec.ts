@@ -339,6 +339,147 @@ describe("Standard Schema Provider", () => {
         });
       }).toThrow('Validation failed: "user:created"');
     });
+
+    test("parseEvent should include event name and field details when eventName matches known schema", () => {
+      const schema = defineSchema("user", {
+        schema: standard({
+          event: {
+            "user:created": v.object({
+              eventId: v.string(),
+              eventName: v.literal("user:created"),
+              eventCreatedAt: v.string(),
+              entityName: v.string(),
+              entityId: v.string(),
+              body: v.object({
+                email: v.pipe(v.string(), v.email()),
+                age: v.pipe(v.number(), v.minValue(13)),
+              }),
+            }),
+          },
+          state: v.object({ email: v.string() }),
+        }),
+        initialEventName: "user:created",
+      });
+
+      expect(() => {
+        schema.parseEvent({
+          eventId: "evt-123",
+          eventName: "user:created",
+          eventCreatedAt: new Date().toISOString(),
+          entityName: "user",
+          entityId: "usr-123",
+          body: {
+            email: "not-an-email",
+            age: 10,
+          },
+        });
+      }).toThrow('Validation failed: "user:created"');
+    });
+
+    test("parseEvent should include field-level error paths in message", () => {
+      const schema = defineSchema("user", {
+        schema: standard({
+          event: {
+            "user:created": v.object({
+              eventId: v.string(),
+              eventName: v.literal("user:created"),
+              eventCreatedAt: v.string(),
+              entityName: v.string(),
+              entityId: v.string(),
+              body: v.object({
+                email: v.pipe(v.string(), v.email()),
+              }),
+            }),
+          },
+          state: v.object({ email: v.string() }),
+        }),
+        initialEventName: "user:created",
+      });
+
+      let errorMessage = "";
+      try {
+        schema.parseEvent({
+          eventId: "evt-123",
+          eventName: "user:created",
+          eventCreatedAt: new Date().toISOString(),
+          entityName: "user",
+          entityId: "usr-123",
+          body: { email: "not-an-email" },
+        });
+      } catch (e) {
+        errorMessage = (e as Error).message;
+      }
+
+      expect(errorMessage).toContain("body.email");
+    });
+
+    test("parseEvent should collect errors from all schemas when eventName is unknown", () => {
+      const schema = defineSchema("user", {
+        schema: standard({
+          event: {
+            "user:created": v.object({
+              eventId: v.string(),
+              eventName: v.literal("user:created"),
+              eventCreatedAt: v.string(),
+              entityName: v.string(),
+              entityId: v.string(),
+              body: v.object({ email: v.string() }),
+            }),
+            "user:updated": v.object({
+              eventId: v.string(),
+              eventName: v.literal("user:updated"),
+              eventCreatedAt: v.string(),
+              entityName: v.string(),
+              entityId: v.string(),
+              body: v.object({ nickname: v.string() }),
+            }),
+          },
+          state: v.object({ email: v.string() }),
+        }),
+        initialEventName: "user:created",
+      });
+
+      let errorMessage = "";
+      try {
+        schema.parseEvent({
+          eventId: "evt-123",
+          eventName: "user:deleted", // unknown event
+          eventCreatedAt: new Date().toISOString(),
+          entityName: "user",
+          entityId: "usr-123",
+          body: {},
+        });
+      } catch (e) {
+        errorMessage = (e as Error).message;
+      }
+
+      // Should include errors from both schemas
+      expect(errorMessage).toContain('Validation failed: "user:created"');
+      expect(errorMessage).toContain('Validation failed: "user:updated"');
+    });
+
+    test("parseEvent should collect all schema errors when input has no eventName", () => {
+      const schema = defineSchema("user", {
+        schema: standard({
+          event: {
+            "user:created": v.object({
+              eventId: v.string(),
+              eventName: v.literal("user:created"),
+              eventCreatedAt: v.string(),
+              entityName: v.string(),
+              entityId: v.string(),
+              body: v.object({ email: v.string() }),
+            }),
+          },
+          state: v.object({ email: v.string() }),
+        }),
+        initialEventName: "user:created",
+      });
+
+      expect(() => {
+        schema.parseEvent({ someRandomField: "value" });
+      }).toThrow("Validation failed");
+    });
   });
 
   describe("Type inference", () => {

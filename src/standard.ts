@@ -89,7 +89,7 @@ export function standard<
         const errors: string[] = [];
         for (const [name, eventSchema] of Object.entries(args.event)) {
           try {
-            return standardValidate(eventSchema, input);
+            return standardValidate(eventSchema, input, name);
           } catch (e) {
             errors.push(e instanceof Error ? e.message : String(e));
           }
