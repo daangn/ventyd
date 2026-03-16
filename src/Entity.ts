@@ -20,6 +20,9 @@ import type { ReadonlyEntity } from "./types/ReadonlyEntity";
  * @typeParam Schema - The schema defining the entity's structure and event types
  * @param schema - The schema instance created with `defineSchema()`
  * @param reducer - The reducer function created with `defineReducer()`
+ * @param options - Optional configuration for the entity class
+ * @param options.maxQueuedEvents - Maximum number of uncommitted events allowed before flushing (default: 10000)
+ * @param options.generateId - Custom ID generator function. Receives `"entityId"` or `"eventId"` as the type argument. Defaults to `crypto.randomUUID()`
  * @returns A constructor function for creating entity instances
  *
  * @remarks
@@ -63,11 +66,14 @@ import type { ReadonlyEntity } from "./types/ReadonlyEntity";
  * console.log(user.state); // { email: "...", nickname: "...", bio: "..." }
  * ```
  */
+const defaultGenerateId = () => crypto.randomUUID();
+
 export function Entity<$$Schema extends DefaultSchema>(
   schema: $$Schema,
   reducer: Reducer<$$Schema>,
   options?: {
     maxQueuedEvents?: number;
+    generateId?: (type: "eventId" | "entityId") => string;
   },
 ): EntityConstructor<$$Schema> {
   type $$EntityName = InferEntityNameFromSchema<$$Schema>;
@@ -77,9 +83,7 @@ export function Entity<$$Schema extends DefaultSchema>(
 
   const entityName = schema[" $$entityName"] as $$EntityName;
   const initialEventName = schema[" $$initialEventName"] as $$InitialEventName;
-  const generateId = schema[" $$generateId"] as (
-    type: "eventId" | "entityId",
-  ) => string;
+  const generateId = options?.generateId ?? defaultGenerateId;
 
   // options
   const maxQueuedEvents = options?.maxQueuedEvents ?? 10000; // Default to 10000 events
