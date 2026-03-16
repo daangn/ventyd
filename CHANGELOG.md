@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.19.0
+
+### Minor Changes
+
+- 24bd27c: feat: move `generateId()` option from schema declaration to `Entity()`
+
 ## 1.18.1
 
 ### Patch Changes
