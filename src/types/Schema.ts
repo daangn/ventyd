@@ -14,7 +14,6 @@ export type Schema<
 > = ReturnType<SchemaInput<EntityName, EventType, StateType, Extension>> & {
   " $$entityName": EntityName;
   " $$initialEventName": InitialEventName;
-  " $$generateId": (type: "eventId" | "entityId") => string;
 };
 
 /**

@@ -46,7 +46,7 @@ describe("Entity Unit Tests", () => {
       expect(user[" $$queuedEvents"][0]?.entityId).toBe(customId);
     });
 
-    test("should use custom ID generator from schema", () => {
+    test("should use custom ID generator from entity options", () => {
       let idCounter = 1000;
 
       const schema = defineSchema("test", {
@@ -57,7 +57,6 @@ describe("Entity Unit Tests", () => {
           state: v.object({ value: v.string() }),
         }),
         initialEventName: "test:created",
-        generateId: (type) => `${type}-${idCounter++}`,
       });
 
       const reducer = defineReducer(schema, (_, event) => {
@@ -67,7 +66,9 @@ describe("Entity Unit Tests", () => {
         return { value: "" };
       });
 
-      class TestEntity extends Entity(schema, reducer) {}
+      class TestEntity extends Entity(schema, reducer, {
+        generateId: (type) => `${type}-${idCounter++}`,
+      }) {}
 
       const entity1 = TestEntity.create({
         body: { value: "first" },
@@ -96,11 +97,6 @@ describe("Entity Unit Tests", () => {
           state: v.object({ value: v.string() }),
         }),
         initialEventName: "test:created",
-        generateId: (type) => {
-          const id = `${type}-${Date.now()}-${Math.random()}`;
-          generatedIds.push({ type, id });
-          return id;
-        },
       });
 
       const reducer = defineReducer(schema, (_, event) => {
@@ -110,7 +106,13 @@ describe("Entity Unit Tests", () => {
         return { value: "" };
       });
 
-      class TestEntity extends Entity(schema, reducer) {}
+      class TestEntity extends Entity(schema, reducer, {
+        generateId: (type) => {
+          const id = `${type}-${Date.now()}-${Math.random()}`;
+          generatedIds.push({ type, id });
+          return id;
+        },
+      }) {}
 
       const entity = TestEntity.create({
         body: { value: "test" },
@@ -143,10 +145,6 @@ describe("Entity Unit Tests", () => {
           state: v.object({ value: v.string() }),
         }),
         initialEventName: "test:created",
-        generateId: (type) => {
-          typeCallLog.push(type);
-          return crypto.randomUUID();
-        },
       });
 
       const reducer = defineReducer(schema, (prevState, event) => {
@@ -159,7 +157,12 @@ describe("Entity Unit Tests", () => {
         return prevState;
       });
 
-      class TestEntity extends Entity(schema, reducer) {
+      class TestEntity extends Entity(schema, reducer, {
+        generateId: (type) => {
+          typeCallLog.push(type);
+          return crypto.randomUUID();
+        },
+      }) {
         updateValue = mutation(this, (dispatch, value: string) => {
           dispatch("test:updated", { value });
         });

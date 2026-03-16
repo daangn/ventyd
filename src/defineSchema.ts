@@ -1,8 +1,6 @@
 import type { Schema, SchemaInput } from "./types";
 import type { BaseEventType } from "./types/BaseEventType";
 
-const defaultGenerateId = () => crypto.randomUUID();
-
 /**
  * Defines a complete schema for an event-sourced entity with pluggable validation.
  *
@@ -10,7 +8,6 @@ const defaultGenerateId = () => crypto.randomUUID();
  * @param options - Schema configuration options
  * @param options.schema - Schema provider function (e.g., `valibot()`) that provides validation
  * @param options.initialEventName - The fully-qualified event name that creates new entities (e.g., "user:created")
- * @param options.generateId - Optional custom ID generator function (defaults to crypto.randomUUID)
  *
  * @returns A fully-typed schema object for use with Entity and Repository
  *
@@ -61,9 +58,7 @@ const defaultGenerateId = () => crypto.randomUUID();
  *     })
  *   }),
  *   // Specify which event creates new entities (use fully-qualified name)
- *   initialEventName: "user:created",
- *   // Optional: Custom ID generator
- *   generateId: () => `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+ *   initialEventName: "user:created"
  * });
  * ```
  *
@@ -97,7 +92,6 @@ export function defineSchema<
   options: {
     schema: SchemaInput<$$EntityName, $$EventType, $$StateType, $$Extension>;
     initialEventName: $$InitialEventName;
-    generateId?: (type: "eventId" | "entityId") => string;
   },
 ): Schema<
   $$EntityName,
@@ -106,8 +100,6 @@ export function defineSchema<
   $$InitialEventName,
   $$Extension
 > {
-  const generateId = options.generateId ?? defaultGenerateId;
-
   const schemaInput = options.schema({
     entityName,
   });
@@ -116,6 +108,5 @@ export function defineSchema<
     ...schemaInput,
     " $$entityName": entityName,
     " $$initialEventName": options.initialEventName,
-    " $$generateId": generateId,
   };
 }

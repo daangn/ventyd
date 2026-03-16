@@ -63,11 +63,14 @@ import type { ReadonlyEntity } from "./types/ReadonlyEntity";
  * console.log(user.state); // { email: "...", nickname: "...", bio: "..." }
  * ```
  */
+const defaultGenerateId = () => crypto.randomUUID();
+
 export function Entity<$$Schema extends DefaultSchema>(
   schema: $$Schema,
   reducer: Reducer<$$Schema>,
   options?: {
     maxQueuedEvents?: number;
+    generateId?: (type: "eventId" | "entityId") => string;
   },
 ): EntityConstructor<$$Schema> {
   type $$EntityName = InferEntityNameFromSchema<$$Schema>;
@@ -77,9 +80,7 @@ export function Entity<$$Schema extends DefaultSchema>(
 
   const entityName = schema[" $$entityName"] as $$EntityName;
   const initialEventName = schema[" $$initialEventName"] as $$InitialEventName;
-  const generateId = schema[" $$generateId"] as (
-    type: "eventId" | "entityId",
-  ) => string;
+  const generateId = options?.generateId ?? defaultGenerateId;
 
   // options
   const maxQueuedEvents = options?.maxQueuedEvents ?? 10000; // Default to 10000 events
