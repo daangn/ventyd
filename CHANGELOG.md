@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.19.1
+
+### Patch Changes
+
+- 31c9c89: fix: add snapshot feature in prisma adapter
+
 ## 1.19.0
 
 ### Minor Changes
