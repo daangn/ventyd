@@ -9,6 +9,7 @@ type BaseEvent = {
   entityName: string;
   entityId: string;
   body: {};
+  version?: number;
 };
 
 /**
@@ -17,6 +18,7 @@ type BaseEvent = {
  */
 export const createInMemoryAdapter = (): InMemoryAdapter => {
   const events: Map<string, BaseEvent[]> = new Map();
+  const snapshots: Map<string, { state: any; version: number }> = new Map();
 
   const adapter: Adapter = {
     /**
@@ -25,9 +27,16 @@ export const createInMemoryAdapter = (): InMemoryAdapter => {
     async getEventsByEntityId(args: {
       entityName: string;
       entityId: string;
+      afterVersion?: number;
     }): Promise<BaseEvent[]> {
       const key = `${args.entityName}:${args.entityId}`;
-      return events.get(key) || [];
+      const allEvents = events.get(key) || [];
+      if (args.afterVersion != null) {
+        return allEvents.filter(
+          (e) => e.version != null && e.version > args.afterVersion!,
+        );
+      }
+      return allEvents;
     },
 
     /**
@@ -38,24 +47,48 @@ export const createInMemoryAdapter = (): InMemoryAdapter => {
       entityId: string;
       events: BaseEvent[];
       state: any;
+      expectedVersion?: number;
     }): Promise<void> {
       for (const event of args.events) {
         const key = `${event.entityName}:${event.entityId}`;
         const existing = events.get(key) || [];
         events.set(key, [...existing, event]);
       }
-      // Note: In this simple implementation, we don't persist state separately
-      // since it can be reconstructed from events
+    },
+
+    /**
+     * Retrieves the latest snapshot for a specific entity.
+     */
+    async getSnapshot(args: {
+      entityName: string;
+      entityId: string;
+    }): Promise<{ state: any; version: number } | null> {
+      const key = `${args.entityName}:${args.entityId}`;
+      return snapshots.get(key) || null;
+    },
+
+    /**
+     * Saves a snapshot of the entity's current state.
+     */
+    async saveSnapshot(args: {
+      entityName: string;
+      entityId: string;
+      state: any;
+      version: number;
+    }): Promise<void> {
+      const key = `${args.entityName}:${args.entityId}`;
+      snapshots.set(key, { state: args.state, version: args.version });
     },
   };
 
   return {
     ...adapter,
     /**
-     * Utility method to clear all events (useful for test cleanup).
+     * Utility method to clear all events and snapshots (useful for test cleanup).
      */
     clear(): void {
       events.clear();
+      snapshots.clear();
     },
 
     /**
@@ -76,6 +109,17 @@ export const createInMemoryAdapter = (): InMemoryAdapter => {
       const key = `${entityName}:${entityId}`;
       return events.get(key)?.length || 0;
     },
+
+    /**
+     * Utility method to get a stored snapshot (useful for debugging tests).
+     */
+    getStoredSnapshot(
+      entityName: string,
+      entityId: string,
+    ): { state: any; version: number } | null {
+      const key = `${entityName}:${entityId}`;
+      return snapshots.get(key) || null;
+    },
   };
 };
 
@@ -83,4 +127,8 @@ export type InMemoryAdapter = Adapter & {
   clear(): void;
   getAllEvents(): BaseEvent[];
   getEventCount(entityName: string, entityId: string): number;
+  getStoredSnapshot(
+    entityName: string,
+    entityId: string,
+  ): { state: any; version: number } | null;
 };

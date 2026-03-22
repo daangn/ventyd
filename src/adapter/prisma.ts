@@ -5,9 +5,13 @@ import type {
   InferStateFromSchema,
 } from "../types";
 
-type BaseEventTypeRow = Omit<BaseEventType, "eventCreatedAt" | "body"> & {
+type BaseEventTypeRow = Omit<
+  BaseEventType,
+  "eventCreatedAt" | "body" | "version"
+> & {
   eventCreatedAt: Date;
   body: unknown;
+  version?: number;
 };
 
 export type VentydAdapterOptions<
@@ -22,7 +26,11 @@ export type VentydAdapterOptions<
   tables: {
     event: {
       findMany(args?: {
-        where: { entityName: string; entityId: string };
+        where: {
+          entityName: string;
+          entityId: string;
+          version?: { gt: number };
+        };
       }): Promise<$$PrismaEventRow[]>;
       createMany(args?: { data: $$PrismaEventRowInput[] }): Promise<unknown>;
     };
@@ -63,6 +71,7 @@ export function prismaAdapter<
       entityName: event.entityName,
       eventCreatedAt: new Date(event.eventCreatedAt),
       body: event.body,
+      version: event.version,
     } as $$PrismaEventRowInput;
 
     return row;
@@ -76,17 +85,21 @@ export function prismaAdapter<
       entityName: row.entityName,
       eventCreatedAt: row.eventCreatedAt.toISOString(),
       body: row.body,
+      version: row.version,
     } as InferEventFromSchema<$$Schema>;
 
     return event;
   }
 
   return {
-    async getEventsByEntityId({ entityName, entityId }) {
+    async getEventsByEntityId({ entityName, entityId, afterVersion }) {
       const rows = await options.tables.event.findMany({
         where: {
           entityName,
           entityId,
+          ...(afterVersion != null
+            ? { version: { gt: afterVersion } }
+            : undefined),
         },
       });
 

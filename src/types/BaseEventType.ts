@@ -21,4 +21,5 @@ export type BaseEventType = {
   entityId: string;
   entityName: string;
   body: unknown;
+  version?: number;
 };

@@ -189,6 +189,7 @@ export type Adapter<$$Schema = DefaultSchema> = {
    * @param args - Query parameters
    * @param args.entityName - The type of entity (e.g., "user", "order")
    * @param args.entityId - The unique identifier of the entity
+   * @param args.afterVersion - Optional version to filter events. Only events with version greater than this value will be returned. Used for snapshot-based loading.
    * @returns A promise resolving to an array of events in chronological order
    *
    * @remarks
@@ -198,7 +199,7 @@ export type Adapter<$$Schema = DefaultSchema> = {
    *
    * ## Performance Considerations
    *
-   * - Add database indexes on `(entityName, entityId, eventCreatedAt)`
+   * - Add database indexes on `(entityName, entityId, version)` or `(entityName, entityId, eventCreatedAt)`
    * - Consider implementing snapshot optimization for entities with many events
    * - Use connection pooling to handle concurrent queries efficiently
    *
@@ -213,6 +214,7 @@ export type Adapter<$$Schema = DefaultSchema> = {
   getEventsByEntityId: (args: {
     entityName: string;
     entityId: string;
+    afterVersion?: number;
   }) => Promise<InferEventFromSchema<$$Schema>[]>;
 
   /**
@@ -221,6 +223,7 @@ export type Adapter<$$Schema = DefaultSchema> = {
    * @param args - Commit parameters
    * @param args.events - Array of events to persist
    * @param args.state - The resulting entity state after applying events
+   * @param args.expectedVersion - Optional version the entity was at before these events. Can be used for optimistic concurrency control via unique constraints on `(entityId, version)`.
    * @returns A promise that resolves when persistence is complete
    *
    * @remarks
@@ -255,8 +258,8 @@ export type Adapter<$$Schema = DefaultSchema> = {
    * ```typescript
    * await adapter.commitEvents({
    *   events: [
-   *     { eventId: '1', eventName: 'user:created', ... },
-   *     { eventId: '2', eventName: 'user:verified', ... },
+   *     { eventId: '1', eventName: 'user:created', version: 1, ... },
+   *     { eventId: '2', eventName: 'user:verified', version: 2, ... },
    *   ],
    *   state: { nickname: 'John', verified: true }
    * });
@@ -267,5 +270,46 @@ export type Adapter<$$Schema = DefaultSchema> = {
     entityId: string;
     events: InferEventFromSchema<$$Schema>[];
     state: InferStateFromSchema<$$Schema>;
+    expectedVersion?: number;
   }): Promise<void>;
+
+  /**
+   * Retrieves the latest snapshot for a specific entity.
+   *
+   * @param args - Query parameters
+   * @param args.entityName - The type of entity
+   * @param args.entityId - The unique identifier of the entity
+   * @returns A promise resolving to the snapshot (state + version) or null if no snapshot exists
+   *
+   * @remarks
+   * This method is optional. When provided, the repository will use snapshots
+   * to optimize entity loading by avoiding full event replay.
+   */
+  getSnapshot?: (args: {
+    entityName: string;
+    entityId: string;
+  }) => Promise<{
+    state: InferStateFromSchema<$$Schema>;
+    version: number;
+  } | null>;
+
+  /**
+   * Saves a snapshot of the entity's current state.
+   *
+   * @param args - Snapshot parameters
+   * @param args.entityName - The type of entity
+   * @param args.entityId - The unique identifier of the entity
+   * @param args.state - The entity state to snapshot
+   * @param args.version - The version at which this snapshot was taken
+   *
+   * @remarks
+   * This method is optional. When provided along with `getSnapshot`, the repository
+   * can automatically save snapshots based on a configured frequency.
+   */
+  saveSnapshot?: (args: {
+    entityName: InferEntityNameFromSchema<$$Schema>;
+    entityId: string;
+    state: InferStateFromSchema<$$Schema>;
+    version: number;
+  }) => Promise<void>;
 };

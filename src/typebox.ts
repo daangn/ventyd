@@ -4,7 +4,14 @@
  */
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { type TLiteral, type TObject, type TString, Type } from "typebox";
+import {
+  type TLiteral,
+  type TNumber,
+  type TObject,
+  type TOptional,
+  type TString,
+  Type,
+} from "typebox";
 import { standard } from "./standard";
 import { typeboxToStandardSchema } from "./typeboxToStandardSchema";
 import type { BaseEventType, SchemaInput, ValueOf } from "./types";
@@ -21,6 +28,7 @@ type TypeboxEventObject<
   entityId: TString;
   eventName: TLiteral<$$EventName>;
   body: $$Body;
+  version: TOptional<TNumber>;
 }>;
 
 /**
@@ -170,6 +178,7 @@ export function typebox<
           entityId: Type.String(),
           eventName: Type.Literal(eventName),
           body,
+          version: Type.Optional(Type.Number()),
         });
         return {
           // biome-ignore lint/performance/noAccumulatingSpread: readonly acc

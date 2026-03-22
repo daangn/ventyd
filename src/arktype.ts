@@ -20,6 +20,7 @@ type ArktypeEventObject<
   entityId: string;
   eventName: $$EventName;
   body: $$Body["infer"];
+  version?: number;
 }>;
 
 /**
@@ -171,6 +172,7 @@ export function arktype<
           entityId: "string",
           eventName: `'${eventName}'`,
           body,
+          "version?": "number",
         });
 
         return {

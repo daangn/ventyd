@@ -29,12 +29,17 @@ export type EntityConstructorArgs<$$Schema> =
       type: "load";
       entityId: string;
       state: InferStateFromSchema<$$Schema>;
+      version?: number;
       UNSAFE_mutable?: true;
     }
   | {
       type: "loadFromEvents";
       entityId: string;
       events: InferEventFromSchema<$$Schema>[];
+      snapshot?: {
+        state: InferStateFromSchema<$$Schema>;
+        version: number;
+      };
     };
 
 /**
@@ -199,6 +204,7 @@ export interface EntityConstructor<$$Schema> {
     args: {
       entityId: string;
       state: InferStateFromSchema<$$Schema>;
+      version?: number;
       UNSAFE_mutable: true;
     },
   ): T;
@@ -209,6 +215,7 @@ export interface EntityConstructor<$$Schema> {
     args: {
       entityId: string;
       state: InferStateFromSchema<$$Schema>;
+      version?: number;
     },
   ): ReadonlyEntity<T>;
 
@@ -222,6 +229,10 @@ export interface EntityConstructor<$$Schema> {
     args: {
       events: InferEventFromSchema<$$Schema>[];
       entityId: string;
+      snapshot?: {
+        state: InferStateFromSchema<$$Schema>;
+        version: number;
+      };
     },
   ) => T;
 
