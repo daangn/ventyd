@@ -1,6 +1,7 @@
 import type {
   Adapter,
   BaseEventType,
+  InferEntityNameFromSchema,
   InferEventFromSchema,
   InferStateFromSchema,
 } from "../types";
@@ -55,21 +56,21 @@ export type VentydAdapterOptions<
       }): Promise<$$PrismaSnapshotRow | null>;
       upsert(args: {
         where: { entityId: string };
-        update: $$PrismaSnapshotRowInput;
+        update: Partial<$$PrismaSnapshotRowInput>;
         create: $$PrismaSnapshotRowInput;
       }): Promise<unknown>;
     };
     view: {
       upsert(args: {
         where: { entityId: string };
-        update: $$PrismaViewRowInput;
+        update: Partial<$$PrismaViewRowInput>;
         create: $$PrismaViewRowInput;
       }): Promise<unknown>;
     };
   };
   entityToViewRow(args: {
     entityId: string;
-    entityName: string;
+    entityName: InferEntityNameFromSchema<$$Schema>;
     state: InferStateFromSchema<$$Schema>;
     version: number;
   }): $$PrismaViewRowInput;

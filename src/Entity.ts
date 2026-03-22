@@ -182,7 +182,9 @@ export function Entity<$$Schema extends DefaultSchema>(
 
           // 3. update version from last event
           if (args.events.length > 0) {
-            const lastEvent = args.events[args.events.length - 1] as BaseEventType;
+            const lastEvent = args.events[
+              args.events.length - 1
+            ] as BaseEventType;
             if (lastEvent.version != null) {
               this[" $$version"] = lastEvent.version;
             }

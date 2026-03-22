@@ -3,9 +3,9 @@
 
 import { describe, expect, test, vi } from "vitest";
 import { createRepository } from "../src";
-import { User } from "./entities/User";
-import { Order } from "./entities/Order";
 import { createInMemoryAdapter } from "./adapters/InMemoryAdapter";
+import { Order } from "./entities/Order";
+import { User } from "./entities/User";
 
 describe("Snapshot Support", () => {
   describe("Snapshot-aware findOne", () => {
