@@ -1,5 +1,12 @@
 # ventyd
 
+## 1.19.0
+
+### Minor Changes
+
+- 24bd27c: feat: move `generateId()` option from schema declaration to `Entity()`
+- a62e3d1: feat: add snapshot support
+
 ## 1.18.1
 
 ### Patch Changes
