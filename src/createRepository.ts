@@ -155,6 +155,22 @@ export function createRepository<
      * ```
      */
     migrate?: (rawEvent: BaseEventType) => BaseEventType;
+    /**
+     * Optional snapshot configuration for optimizing entity loading.
+     *
+     * @remarks
+     * When configured, the repository will periodically save entity state snapshots
+     * to avoid replaying all events from the beginning. Requires the adapter to
+     * implement `getSnapshot` and `saveSnapshot` methods.
+     */
+    snapshot?: {
+      /**
+       * Save a snapshot every N events.
+       * For example, `frequency: 100` saves a snapshot when the entity version
+       * is a multiple of 100.
+       */
+      frequency: number;
+    };
   },
 ): Repository<ConstructorReturnType<$$EntityConstructor>> {
   type $$Schema = InferSchemaFromEntityConstructor<$$EntityConstructor>;
@@ -166,13 +182,26 @@ export function createRepository<
 
   return {
     async findOne({ entityId }) {
-      // 1. query events by entity ID
+      // 1. try to load snapshot if adapter supports it
+      let snapshot: {
+        state: ReturnType<typeof _schema.parseEvent>;
+        version: number;
+      } | null = null;
+      if (args.adapter.getSnapshot) {
+        snapshot = await args.adapter.getSnapshot({
+          entityName: entityName as string,
+          entityId,
+        });
+      }
+
+      // 2. query events by entity ID (after snapshot version if available)
       const rawEvents = await args.adapter.getEventsByEntityId({
         entityName: entityName as string,
         entityId,
+        afterVersion: snapshot?.version,
       });
 
-      // 2. migrate + validate and sort events from adapter using the schema
+      // 3. migrate + validate and sort events from adapter using the schema
       const migrate = args.migrate ?? ((e) => e);
       const migratedEvents = rawEvents
         .map((e) => e as BaseEventType)
@@ -181,14 +210,22 @@ export function createRepository<
       for (const event of migratedEvents) {
         _schema.parseEvent(event);
       }
-      const events = sortBy(migratedEvents, "eventCreatedAt");
+      const events = sortBy(migratedEvents, (e) => {
+        const ev = e as BaseEventType;
+        return ev.version != null ? ev.version : ev.eventCreatedAt;
+      });
 
-      if (events.length === 0) {
+      // 4. if no snapshot and no events, entity doesn't exist
+      if (!snapshot && events.length === 0) {
         return null;
       }
 
-      // 3. load entity from events
-      const entity = Entity[" $$loadFromEvents"]({ entityId, events });
+      // 5. load entity from events (with optional snapshot)
+      const entity = Entity[" $$loadFromEvents"]({
+        entityId,
+        events,
+        snapshot: snapshot ?? undefined,
+      });
 
       return entity as $$ExtendedEntityType;
     },
@@ -200,14 +237,32 @@ export function createRepository<
       const queuedEvents = _entity[" $$flush"]();
 
       // 2. commit events to adapter
+      const expectedVersion =
+        _entity[" $$version"] - queuedEvents.length;
       await args.adapter.commitEvents({
         entityName,
         entityId: _entity.entityId,
         events: queuedEvents,
         state: _entity.state,
+        expectedVersion,
       });
 
-      // 3. run plugins in parallel (only if there are events)
+      // 3. save snapshot if configured and adapter supports it
+      if (
+        args.snapshot?.frequency &&
+        args.adapter.saveSnapshot &&
+        queuedEvents.length > 0 &&
+        _entity[" $$version"] % args.snapshot.frequency === 0
+      ) {
+        await args.adapter.saveSnapshot({
+          entityName,
+          entityId: _entity.entityId,
+          state: _entity.state,
+          version: _entity[" $$version"],
+        });
+      }
+
+      // 4. run plugins in parallel (only if there are events)
       if (args.plugins && args.plugins.length > 0 && queuedEvents.length > 0) {
         const pluginResults = await Promise.allSettled(
           args.plugins.map((plugin) =>

@@ -21,6 +21,7 @@ type ValibotEventObject<
     entityId: v.StringSchema<undefined>;
     eventName: v.LiteralSchema<$$EventName, undefined>;
     body: $$Body;
+    version: v.OptionalSchema<v.NumberSchema<undefined>, undefined>;
   },
   undefined
 >;
@@ -172,6 +173,7 @@ export function valibot<
           entityId: v.string(),
           eventName: v.literal(eventName),
           body,
+          version: v.optional(v.number()),
         });
         return {
           // biome-ignore lint/performance/noAccumulatingSpread: readonly acc

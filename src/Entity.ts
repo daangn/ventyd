@@ -1,4 +1,5 @@
 import type {
+  BaseEventType,
   DefaultSchema,
   EntityConstructor,
   EntityConstructorArgs,
@@ -108,6 +109,10 @@ export function Entity<$$Schema extends DefaultSchema>(
       return this[" $$state"];
     }
 
+    get version() {
+      return this[" $$version"];
+    }
+
     // ----------------------
     // private properties
     // ----------------------
@@ -116,6 +121,7 @@ export function Entity<$$Schema extends DefaultSchema>(
     " $$queuedEvents": $$Event[] = [];
     " $$reducer": Reducer<$$Schema> = reducer;
     " $$readonly": boolean = false;
+    " $$version": number = 0;
     " $$now": () => Date = () => new Date();
 
     // ----------------------
@@ -134,7 +140,7 @@ export function Entity<$$Schema extends DefaultSchema>(
           // 1. validate event before dispatching
           schema.parseEventByName(
             eventName,
-            this[" $$createEvent"](eventName, eventBody),
+            this[" $$createEvent"](eventName, eventBody, { version: 1 }),
           );
 
           // 2. dispatch event
@@ -148,6 +154,7 @@ export function Entity<$$Schema extends DefaultSchema>(
         case "load": {
           this.entityId = args.entityId;
           this[" $$state"] = args.state;
+          this[" $$version"] = args.version ?? 0;
           this[" $$readonly"] = !args.UNSAFE_mutable;
           break;
         }
@@ -155,6 +162,13 @@ export function Entity<$$Schema extends DefaultSchema>(
         case "loadFromEvents": {
           // 0. prepare
           const reducer = this[" $$reducer"];
+
+          // seed from snapshot if available
+          if (args.snapshot) {
+            this[" $$state"] = args.snapshot.state;
+            this[" $$version"] = args.snapshot.version;
+          }
+
           const prevState = this[" $$state"];
 
           // 1. validate events
@@ -165,6 +179,14 @@ export function Entity<$$Schema extends DefaultSchema>(
           // 2. compute state
           this.entityId = args.entityId;
           this[" $$state"] = args.events.reduce(reducer, prevState);
+
+          // 3. update version from last event
+          if (args.events.length > 0) {
+            const lastEvent = args.events[args.events.length - 1] as BaseEventType;
+            if (lastEvent.version != null) {
+              this[" $$version"] = lastEvent.version;
+            }
+          }
           break;
         }
       }
@@ -198,6 +220,7 @@ export function Entity<$$Schema extends DefaultSchema>(
       args: {
         entityId: string;
         state: InferStateFromSchema<$$Schema>;
+        version?: number;
         UNSAFE_mutable: true;
       },
     ): T;
@@ -208,6 +231,7 @@ export function Entity<$$Schema extends DefaultSchema>(
       args: {
         entityId: string;
         state: InferStateFromSchema<$$Schema>;
+        version?: number;
       },
     ): ReadonlyEntity<T> {
       // biome-ignore lint/complexity/noThisInStatic: inheritance
@@ -215,6 +239,7 @@ export function Entity<$$Schema extends DefaultSchema>(
         type: "load",
         entityId: args.entityId,
         state: args.state,
+        version: "version" in args ? args.version : undefined,
         UNSAFE_mutable:
           "UNSAFE_mutable" in args && args.UNSAFE_mutable ? true : undefined,
       }) as ReadonlyEntity<T>;
@@ -227,6 +252,10 @@ export function Entity<$$Schema extends DefaultSchema>(
       args: {
         entityId: string;
         events: InferEventFromSchema<$$Schema>[];
+        snapshot?: {
+          state: InferStateFromSchema<$$Schema>;
+          version: number;
+        };
       },
     ): T {
       // biome-ignore lint/complexity/noThisInStatic: inheritance
@@ -234,6 +263,7 @@ export function Entity<$$Schema extends DefaultSchema>(
         type: "loadFromEvents",
         entityId: args.entityId,
         events: args.events,
+        snapshot: args.snapshot,
       });
     }
 
@@ -267,12 +297,19 @@ export function Entity<$$Schema extends DefaultSchema>(
         );
       }
 
-      // 1. create event
+      // 1. create and validate event (version not yet committed)
+      const nextVersion = this[" $$version"] + 1;
       const event = schema.parseEvent(
-        this[" $$createEvent"](eventName, body, options),
+        this[" $$createEvent"](eventName, body, {
+          ...options,
+          version: nextVersion,
+        }),
       ) as $$Event;
 
-      // 2. add event to queue
+      // 2. only increment version after successful validation
+      this[" $$version"] = nextVersion;
+
+      // 3. add event to queue
       queuedEvents.push(event);
 
       // 3. update state
@@ -292,6 +329,7 @@ export function Entity<$$Schema extends DefaultSchema>(
       options?: {
         eventId?: string;
         eventCreatedAt?: string;
+        version?: number;
       },
     ) {
       return {
@@ -302,6 +340,7 @@ export function Entity<$$Schema extends DefaultSchema>(
         entityId: this.entityId,
         entityName: this.entityName,
         body,
+        version: options?.version,
       };
     }
   };

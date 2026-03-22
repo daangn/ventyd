@@ -6,7 +6,9 @@
 import {
   type Static,
   type TLiteral,
+  type TNumber,
   type TObject,
+  type TOptional,
   type TString,
   Type,
 } from "@sinclair/typebox";
@@ -28,6 +30,7 @@ type TypeboxEventObject<
   entityId: TString;
   eventName: TLiteral<$$EventName>;
   body: $$Body;
+  version: TOptional<TNumber>;
 }>;
 
 /**
@@ -178,6 +181,7 @@ export function typebox<
           entityId: Type.String(),
           eventName: Type.Literal(eventName),
           body,
+          version: Type.Optional(Type.Number()),
         });
         return {
           // biome-ignore lint/performance/noAccumulatingSpread: readonly acc

@@ -20,6 +20,7 @@ type ZodEventObject<
   entityId: z.ZodString;
   eventName: z.ZodLiteral<$$EventName>;
   body: $$Body;
+  version: z.ZodOptional<z.ZodNumber>;
 }>;
 
 /**
@@ -165,6 +166,7 @@ export function zod<
           entityId: z.string(),
           eventName: z.literal(eventName),
           body,
+          version: z.number().optional(),
         });
 
         return {

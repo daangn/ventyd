@@ -44,6 +44,12 @@ export interface Entity<$$Schema> {
    */
   get state(): InferStateFromSchema<$$Schema>;
 
+  /**
+   * The current version of this entity, equal to the number of events applied.
+   * Starts at 0 and increments by 1 for each event.
+   */
+  get version(): number;
+
   // ----------------------
   // private properties
   // ----------------------
@@ -56,6 +62,8 @@ export interface Entity<$$Schema> {
   " $$reducer": Reducer<$$Schema>;
   /** @internal */
   " $$readonly": boolean;
+  /** @internal */
+  " $$version": number;
   /** @internal */
   " $$now": () => Date;
 
@@ -82,6 +90,7 @@ export interface Entity<$$Schema> {
     options?: {
       eventId?: string;
       eventCreatedAt?: string;
+      version?: number;
     },
   ) => {
     eventId: string;
@@ -90,5 +99,6 @@ export interface Entity<$$Schema> {
     entityId: string;
     entityName: InferEntityNameFromSchema<$$Schema>;
     body: InferEventBodyFromSchema<$$Schema, EventName>;
+    version?: number;
   };
 }
