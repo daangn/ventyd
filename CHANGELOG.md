@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.19.2
+
+### Patch Changes
+
+- 19121ea: fix: type error
+
 ## 1.19.1
 
 ### Patch Changes
