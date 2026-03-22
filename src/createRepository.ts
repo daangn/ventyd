@@ -8,6 +8,7 @@ import type {
   EntityConstructor,
   InferEntityNameFromSchema,
   InferSchemaFromEntityConstructor,
+  InferStateFromSchema,
   Plugin,
   Repository,
 } from "./types";
@@ -176,6 +177,7 @@ export function createRepository<
   type $$Schema = InferSchemaFromEntityConstructor<$$EntityConstructor>;
   type $$EntityName = InferEntityNameFromSchema<$$Schema>;
   type $$ExtendedEntityType = ConstructorReturnType<$$EntityConstructor>;
+  type $$State = InferStateFromSchema<$$Schema>;
 
   const _schema = Entity.schema as DefaultSchema;
   const entityName = _schema[" $$entityName"] as $$EntityName;
@@ -184,7 +186,7 @@ export function createRepository<
     async findOne({ entityId }) {
       // 1. try to load snapshot if adapter supports it
       let snapshot: {
-        state: ReturnType<typeof _schema.parseEvent>;
+        state: $$State;
         version: number;
       } | null = null;
       if (args.adapter.getSnapshot) {
@@ -237,8 +239,7 @@ export function createRepository<
       const queuedEvents = _entity[" $$flush"]();
 
       // 2. commit events to adapter
-      const expectedVersion =
-        _entity[" $$version"] - queuedEvents.length;
+      const expectedVersion = _entity[" $$version"] - queuedEvents.length;
       await args.adapter.commitEvents({
         entityName,
         entityId: _entity.entityId,

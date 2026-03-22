@@ -3,6 +3,7 @@
 
 import * as v from "valibot";
 import { describe, expect, test } from "vitest";
+import type { BaseEventType } from "../src";
 import {
   createRepository,
   defineReducer,
@@ -10,7 +11,6 @@ import {
   Entity,
   mutation,
 } from "../src";
-import type { BaseEventType } from "../src";
 import { valibot } from "../src/valibot";
 import { createInMemoryAdapter } from "./adapters/InMemoryAdapter";
 

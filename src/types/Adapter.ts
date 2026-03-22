@@ -285,10 +285,7 @@ export type Adapter<$$Schema = DefaultSchema> = {
    * This method is optional. When provided, the repository will use snapshots
    * to optimize entity loading by avoiding full event replay.
    */
-  getSnapshot?: (args: {
-    entityName: string;
-    entityId: string;
-  }) => Promise<{
+  getSnapshot?: (args: { entityName: string; entityId: string }) => Promise<{
     state: InferStateFromSchema<$$Schema>;
     version: number;
   } | null>;

@@ -1,19 +1,11 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: for testing */
 /** biome-ignore-all lint/suspicious/noExplicitAny: for testing */
 
-import * as v from "valibot";
 import { describe, expect, test } from "vitest";
-import {
-  createRepository,
-  defineReducer,
-  defineSchema,
-  Entity,
-  mutation,
-} from "../src";
 import type { BaseEventType } from "../src";
-import { valibot } from "../src/valibot";
-import { User } from "./entities/User";
+import { createRepository } from "../src";
 import { createInMemoryAdapter } from "./adapters/InMemoryAdapter";
+import { User } from "./entities/User";
 
 describe("Event Versioning", () => {
   describe("Version tracking on create", () => {
