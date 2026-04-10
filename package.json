@@ -59,7 +59,8 @@
   ],
   "workspaces": [
     ".",
-    "./docs"
+    "./docs",
+    "./skill"
   ],
   "scripts": {
     "build": "tsdown",
