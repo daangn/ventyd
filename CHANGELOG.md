@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.20.1
+
+### Patch Changes
+
+- a12ca6a: Use prepack instead of postbuild for embedded docs generation to ensure dist/docs/ is included in the published package
+
 ## 1.20.0
 
 ### Minor Changes
