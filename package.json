@@ -63,7 +63,7 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "build:docs": "tsx scripts/generate-docs.ts",
+    "build:docs": "npm run build -w docs && tsx scripts/generate-docs.ts",
     "postbuild": "tsx scripts/generate-docs.ts",
     "format": "biome check --write --unsafe .",
     "release": "changeset publish",
