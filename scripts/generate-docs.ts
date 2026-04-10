@@ -86,10 +86,10 @@ async function main() {
   try {
     files = await readdir(DOCS_BUILD);
   } catch {
-    console.error(
-      "docs/build/client/llms/ not found. Run `npm run build` in docs/ first.",
+    console.warn(
+      "Skipping docs generation: docs/build/client/llms/ not found. Run `npm run build:docs` to generate embedded docs.",
     );
-    process.exit(1);
+    return;
   }
 
   // Filter to only data-less resource files (the actual markdown content)
