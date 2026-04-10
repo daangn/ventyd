@@ -63,6 +63,8 @@
   ],
   "scripts": {
     "build": "tsdown",
+    "build:docs": "npm run build -w docs && tsx scripts/generate-docs.ts",
+    "postbuild": "tsx scripts/generate-docs.ts",
     "format": "biome check --write --unsafe .",
     "release": "changeset publish",
     "test": "vitest run ./test",
@@ -85,6 +87,7 @@
     "mongodb": "^6.21.0",
     "mongodb-memory-server": "^10.4.3",
     "tsdown": "0.20.1",
+    "tsx": "^4.21.0",
     "typebox": "^1.1.5",
     "typescript": "^5.9.3",
     "valibot": "^1.2.0",

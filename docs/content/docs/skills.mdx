@@ -1,0 +1,44 @@
+---
+title: Skills
+description: Install ventyd skills for your coding agent
+---
+
+## Overview
+
+Ventyd Skills are folders of instructions, scripts, and resources that agents can discover and use to gain ventyd knowledge. They contain setup instructions, best practices, and methods for retrieving current documentation.
+
+## Installation
+
+<Tabs items={["npm", "pnpm", "yarn", "bun"]}>
+  <Tab value="npm">
+    ```bash
+    npx skills add daangn/ventyd
+    ```
+  </Tab>
+  <Tab value="pnpm">
+    ```bash
+    pnpm dlx skills add daangn/ventyd
+    ```
+  </Tab>
+  <Tab value="yarn">
+    ```bash
+    yarn dlx skills add daangn/ventyd
+    ```
+  </Tab>
+  <Tab value="bun">
+    ```bash
+    bun x skills add daangn/ventyd
+    ```
+  </Tab>
+</Tabs>
+
+## Compatibility
+
+Works with any coding agent that supports the [Skills standard](https://agentskills.io), including:
+
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+- [Cursor](https://cursor.com)
+- [Codex](https://openai.com/codex)
+- [OpenCode](https://opencode.ai)
+
+Also available on [GitHub](https://github.com/daangn/ventyd).
