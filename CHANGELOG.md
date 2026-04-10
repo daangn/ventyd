@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.20.2
+
+### Patch Changes
+
+- 7d9b7f4: Skip embedded docs generation gracefully when docs build output is not available
+
 ## 1.20.1
 
 ### Patch Changes
