@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.20.3
+
+### Patch Changes
+
+- a4aa6c4: Include embedded docs (dist/docs/\*.md) in published package via CI docs build step
+
 ## 1.20.2
 
 ### Patch Changes
