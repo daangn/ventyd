@@ -30,6 +30,9 @@ jobs:
       - name: Build
         run: yarn build
 
+      - name: Build Docs
+        run: yarn build:docs
+
       - name: Create Release Pull Request or Publish to npm
         id: changesets
         uses: changesets/action@v1
