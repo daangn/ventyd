@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.20.0
+
+### Minor Changes
+
+- d7499bc: feat: add ventyd agent skill
+
 ## 1.19.2
 
 ### Patch Changes
