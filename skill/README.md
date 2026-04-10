@@ -1,4 +1,4 @@
-# @ventyd/skill
+# Ventyd Skills
 
 Agent skill for the [ventyd](https://github.com/daangn/ventyd) TypeScript event sourcing library.
 
