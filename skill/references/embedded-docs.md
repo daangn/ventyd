@@ -10,78 +10,60 @@ ls node_modules/ventyd/
 
 If ventyd is installed, proceed with the strategies below. If not, see `references/quick-start.md` or `references/remote-docs.md`.
 
-## Type Declaration Files
+## Documentation Files
 
-Ventyd's type declaration files contain extensive TSDoc comments with detailed API documentation, usage examples, and design rationale. These are the primary embedded documentation.
+Ventyd ships Markdown documentation inside the package at `node_modules/ventyd/dist/docs/`. These are clean Markdown files generated from the official documentation.
 
-### Key Files
+### How to Read
 
-Read these files to understand ventyd's API:
+```bash
+cat node_modules/ventyd/dist/docs/quick-start.md
+```
+
+### File Map
+
+| File | Topic | Use When |
+|------|-------|----------|
+| `dist/docs/quick-start.md` | First entity walkthrough | Learning the basic pattern |
+| `dist/docs/installation.md` | Installation + validation library setup | Setting up a new project |
+| `dist/docs/core-concepts.md` | Event sourcing fundamentals | Understanding architecture |
+| `dist/docs/schema.md` | Schema definition + all validation libraries | Choosing/using Valibot, Zod, TypeBox, ArkType |
+| `dist/docs/database.md` | Adapter interface + implementation guide | Connecting to a database |
+| `dist/docs/plugins.md` | Plugin interface + common patterns | Adding side effects (analytics, logging, webhooks) |
+| `dist/docs/querying.md` | Query by custom fields + denormalized views | Looking up entities by non-ID fields |
+| `dist/docs/testing.md` | Entity testing + integration testing | Writing tests for entities |
+| `dist/docs/event-naming.md` | Event naming conventions | Naming events correctly |
+| `dist/docs/event-granularity.md` | Fine vs coarse-grained events | Deciding event detail level |
+| `dist/docs/event-versioning.md` | Schema evolution + migration strategies | Handling event schema changes |
+| `dist/docs/error-handling.md` | Error handling patterns | Implementing validation and error recovery |
+
+### Search Across Docs
+
+```bash
+grep -r "Plugin" node_modules/ventyd/dist/docs/
+```
+
+```bash
+grep -rl "adapter" node_modules/ventyd/dist/docs/
+```
+
+## Type Declaration Files (Supplementary)
+
+For precise API signatures and type definitions, read the type declaration files:
 
 | File | Contents |
 |------|----------|
-| `node_modules/ventyd/dist/index.d.mts` | All public exports (functions and types) |
-| `node_modules/ventyd/dist/types/Plugin.d.mts` | Plugin interface — execution model, error handling, common patterns |
-| `node_modules/ventyd/dist/types/Adapter.d.mts` | Adapter interface — required/optional methods, implementation guide |
-| `node_modules/ventyd/dist/types/Repository.d.mts` | Repository interface — findOne, commit |
-| `node_modules/ventyd/dist/types/Schema.d.mts` | Schema type — event/state type definitions |
-| `node_modules/ventyd/dist/types/Entity.d.mts` | Entity type — create, load, state, version |
-| `node_modules/ventyd/dist/types/Reducer.d.mts` | Reducer function signature |
-| `node_modules/ventyd/dist/types/MutationMethod.d.mts` | Mutation method type |
-| `node_modules/ventyd/dist/types/ReadonlyEntity.d.mts` | ReadonlyEntity type (CQRS pattern) |
+| `dist/index.d.mts` | All public exports (functions and types) |
+| `dist/types/Plugin.d.mts` | Plugin interface with extensive TSDoc |
+| `dist/types/Adapter.d.mts` | Adapter interface with implementation examples |
+| `dist/types/Repository.d.mts` | Repository interface — findOne, commit |
+| `dist/types/Schema.d.mts` | Schema type definitions |
+| `dist/types/Entity.d.mts` | Entity type — create, load, state, version |
 
-### Validation Library Integrations
+These contain TSDoc comments with `@remarks`, `@example`, and `@see` tags.
 
-| File | Contents |
-|------|----------|
-| `node_modules/ventyd/dist/valibot.d.mts` | Valibot schema provider |
-| `node_modules/ventyd/dist/zod.d.mts` | Zod schema provider |
-| `node_modules/ventyd/dist/arktype.d.mts` | ArkType schema provider |
-| `node_modules/ventyd/dist/typebox.d.mts` | TypeBox schema provider |
-| `node_modules/ventyd/dist/standard.d.mts` | Generic Standard Schema provider |
+## Priority
 
-### Adapter
-
-| File | Contents |
-|------|----------|
-| `node_modules/ventyd/dist/adapter/prisma.d.mts` | Prisma ORM adapter |
-
-## Search Strategies
-
-### Find a specific API
-
-```bash
-grep -r "export.*defineSchema" node_modules/ventyd/dist/index.d.mts
-```
-
-### Find interface details
-
-```bash
-grep -A 50 "interface Plugin" node_modules/ventyd/dist/types/Plugin.d.mts
-```
-
-### Find all exported types
-
-```bash
-grep "export" node_modules/ventyd/dist/index.d.mts
-```
-
-### Find validation library usage
-
-```bash
-cat node_modules/ventyd/dist/valibot.d.mts
-```
-
-## When Embedded Docs Are Insufficient
-
-If type declarations don't have enough detail:
-
-1. **Check the source map**: Read `node_modules/ventyd/dist/` JavaScript files for implementation details
-2. **Fall back to remote docs**: See `references/remote-docs.md`
-3. **Check common errors**: See `references/common-errors.md`
-
-## Reading Tips
-
-- The `Plugin.d.mts` and `Adapter.d.mts` files have the most extensive documentation (~300 lines each)
-- TSDoc comments include `@remarks`, `@example`, and `@see` tags
-- Type inference utilities (`InferStateFromSchema`, etc.) are documented in `types/Schema.d.mts`
+1. **dist/docs/*.md** — Human-readable documentation with examples and explanations
+2. **dist/types/*.d.mts** — Precise type signatures and TSDoc for API details
+3. **Remote docs** — See `references/remote-docs.md` if local files are insufficient
