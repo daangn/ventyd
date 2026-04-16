@@ -152,3 +152,7 @@ console.log(loaded.events);
   </Card>
 </Cards>
 
+<Callout type="info">
+If state is always derived from events, what happens when an entity has thousands of events? And how do you query entities by fields other than `entityId`? These questions lead to two additional concepts — **snapshots** and **views** — that build on top of the event log. See [Events, Snapshots & Views](/docs/architecture) for the full picture.
+</Callout>
+
