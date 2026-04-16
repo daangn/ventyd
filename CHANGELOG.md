@@ -1,5 +1,11 @@
 # ventyd
 
+## 1.20.4
+
+### Patch Changes
+
+- ec9e23d: docs: add some production guide
+
 ## 1.20.3
 
 ### Patch Changes
