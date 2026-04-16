@@ -15,7 +15,8 @@
     "plugins",
 
     "---Production Guide---",
-    "querying",
+    "architecture",
+    "transactions",
     "testing",
     "event-naming",
     "event-granularity",

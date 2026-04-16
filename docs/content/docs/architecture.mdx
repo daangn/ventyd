@@ -1,0 +1,286 @@
+---
+title: Events, Snapshots & Views
+description: The three representations of truth in event sourcing
+---
+
+## One Entity, Three Faces
+
+In a traditional CRUD system, your data has one representation: the current row in a database table. Event sourcing splits this into three distinct structures, each serving a different purpose:
+
+- **Events** — what happened (the write model)
+- **Snapshots** — a cached checkpoint of state at a point in time
+- **Views** — a queryable projection shaped for reading (the read model)
+
+These are not three copies of the same data. They are three *perspectives* on the same truth, each optimized for a different access pattern. Understanding when and why you need each one is the key to building event-sourced systems that stay simple as they grow.
+
+## Events: The Append-Only Log
+
+Events are the source of truth. Everything else is derived.
+
+```typescript
+{ eventName: "user:created",     version: 1, body: { email: "alice@example.com", name: "Alice" } }
+{ eventName: "user:name_updated", version: 2, body: { name: "Alice Cooper" } }
+{ eventName: "user:verified",     version: 3, body: {} }
+```
+
+An event records a fact that happened in the past. It is immutable — you don't update or delete events, you only append new ones. This constraint may feel limiting, but it is the source of event sourcing's power:
+
+- **Auditability**: You can always answer "what happened and when?"
+- **Replayability**: You can rebuild any derived state from scratch
+- **Temporal queries**: You can reconstruct state at any point in history
+
+The `version` field gives each event a monotonically increasing sequence number within its entity. This serves two purposes: it defines a total ordering (more reliable than timestamps), and it enables optimistic concurrency control. When two processes try to write `version: 4` simultaneously, only one can succeed.
+
+### The Mental Model
+
+Think of events like an accounting ledger. You never erase a transaction — if you made a mistake, you add a correcting entry. The current balance is always derivable by replaying the ledger from the beginning.
+
+This is exactly what Ventyd's `findOne()` does: load all events, replay them through the reducer, and return the resulting state.
+
+## Snapshots: Checkpoint Optimization
+
+Replaying all events works perfectly for entities with tens or even hundreds of events. But what about an entity with 10,000 events? Replaying all of them on every load becomes expensive.
+
+Snapshots solve this by periodically capturing the entity's state at a specific version:
+
+```
+Snapshot: { version: 100, state: { email: "alice@example.com", name: "Alice Cooper", ... } }
+```
+
+Now, instead of replaying 150 events, Ventyd can:
+1. Load the snapshot at version 100
+2. Load only events after version 100 (events 101-150)
+3. Replay those 50 events on top of the snapshot
+
+The entity's state is identical either way — snapshots are purely an optimization. You can delete all snapshots and the system will still work correctly, just slower.
+
+### When to Snapshot
+
+Configure snapshot frequency based on your entity's event volume:
+
+```typescript
+const repository = createRepository(User, {
+  adapter,
+  snapshot: {
+    frequency: 100, // Save a snapshot every 100 events
+  },
+});
+```
+
+The Prisma adapter writes snapshots inside the same transaction as events, so they're always consistent:
+
+```
+Transaction:
+  1. INSERT events (versions 99, 100)
+  2. UPSERT view
+  3. UPSERT snapshot at version 100  ← only when version % frequency === 0
+```
+
+### The Mental Model
+
+Snapshots are like bookmarks in a long book. You don't need them to read the book — you can always start from page one. But if you know you'll keep coming back to chapter 12, it's nice to not flip through the first 11 chapters every time.
+
+If a bookmark gets lost or damaged, you lose nothing. You just have to flip from the beginning next time. This is why snapshots are stored with a fixed schema (`entityId`, `entityName`, `state`, `version`) and don't require user-defined mappings — they exist purely to serve the event-sourcing machinery.
+
+## Views: The Read Model
+
+Events are optimized for writing: append-only, ordered by version, indexed by `entityId`. But most applications need to *query* data in ways that don't align with this structure:
+
+- "Find all active users"
+- "List orders by status"
+- "Search users by email"
+
+Ventyd repositories only support querying by `entityId`:
+
+```typescript
+// ✅ Built-in: Query by entityId
+const user = await repository.findOne({ entityId: "user-123" });
+
+// ❌ Not supported: Query by other fields
+const user = await repository.findOne({ email: "alice@example.com" });
+```
+
+This is where views come in. A view (also called a projection or read model) is a denormalized representation of your entity's state, shaped for querying:
+
+```sql
+-- Event table (write model): optimized for append and replay
+CREATE TABLE events (
+  event_id    TEXT PRIMARY KEY,
+  entity_id   TEXT,
+  entity_name TEXT,
+  event_name  TEXT,
+  version     INTEGER,
+  body        JSONB,
+  UNIQUE (entity_id, version)
+);
+
+-- View table (read model): optimized for queries
+CREATE TABLE user_view (
+  entity_id   TEXT PRIMARY KEY,
+  email       TEXT UNIQUE,
+  name        TEXT,
+  is_verified BOOLEAN,
+  created_at  TIMESTAMP,
+  version     INTEGER
+);
+```
+
+The event table stores *what happened*. The view table stores *what things look like now*. They contain the same information in different shapes.
+
+### Transactional Consistency
+
+In the Prisma adapter, the view is updated in the same transaction as the event insert:
+
+```typescript
+const viewRow = entityToViewRow({ entityId, entityName, state, version });
+
+await prisma.$transaction([
+  tables.event.createMany({ data: eventRows }),
+  tables.view.upsert({ where: { entityId }, update: viewRow, create: viewRow }),
+]);
+```
+
+This means your view is never stale relative to your events. The moment events are committed, the view reflects them. This is a significant advantage over asynchronous projection patterns where a separate process consumes events and updates views with some delay.
+
+### The Mental Model
+
+If events are a journal ("today I deposited $100, then withdrew $30"), the view is your bank statement — a summary designed for quick answers. You can always regenerate the statement from the journal, but the statement is what you check when you want to know your balance.
+
+The `entityToViewRow` function is where you define the shape of this summary. It receives the full entity state and returns a row optimized for your query patterns:
+
+```typescript
+entityToViewRow({ entityId, entityName, state, version }) {
+  return {
+    entityId,
+    email: state.email,
+    name: state.name,
+    isVerified: state.isVerified,
+    createdAt: state.createdAt,
+  };
+}
+```
+
+### Querying with Views
+
+Once you have a view table, querying by custom fields is straightforward — query the view, then load the entity if you need to mutate it:
+
+```typescript
+async function findUserByEmail(email: string) {
+  // 1. Look up entityId from view
+  const record = await db.userView.findOne({ email });
+
+  if (!record) {
+    return null;
+  }
+
+  // 2. Load entity by entityId
+  return userRepository.findOne({ entityId: record.entityId });
+}
+
+// Usage
+const user = await findUserByEmail("alice@example.com");
+if (user) {
+  console.log(user.state.nickname);
+}
+```
+
+For read-only access, you can skip the event replay entirely and use `Entity.load()` to create a readonly entity directly from the view's state:
+
+```typescript
+async function getUserByEmail(email: string) {
+  const record = await db.userView.findOne({ email });
+  if (!record) return null;
+
+  // Create readonly entity from view state — no event replay needed
+  const user = User.load({
+    entityId: record.entityId,
+    state: record,
+  });
+
+  return user;
+}
+
+// ✅ Fast readonly access
+const user = await getUserByEmail("alice@example.com");
+console.log(user.state.nickname);
+
+// ❌ Cannot mutate — readonly entity
+// user.updateProfile({ ... }); // Type error
+```
+
+### Querying with Plugins
+
+If you're not using the Prisma adapter's built-in view table, you can maintain your own indexes using plugins:
+
+```typescript
+const emailIndexPlugin: Plugin = {
+  async onCommitted({ entityName, entityId, state }) {
+    if (entityName !== "user") return;
+
+    await db.userEmails.upsert(
+      { email: state.email },
+      {
+        email: state.email,
+        entityId: entityId,
+        updatedAt: new Date()
+      }
+    );
+  }
+};
+
+const userRepository = createRepository(User, {
+  adapter,
+  plugins: [emailIndexPlugin]
+});
+```
+
+Plugins run after the commit transaction completes. This means the index update is eventually consistent — if the plugin fails, your events are saved but the index may be stale. For strict consistency, prefer updating the view inside the adapter's transaction (as the Prisma adapter does).
+
+## How the Three Fit Together
+
+```
+  Write path                              Read path
+  ─────────                               ─────────
+
+  mutation()                              View table
+      │                                      ↑
+      ▼                                      │
+  dispatch event                    entityToViewRow()
+      │                                      ↑
+      ▼                                      │
+  commit ──── transaction ───┬──► Event table │
+                             │               │
+                             ├──► View table ─┘
+                             │
+                             └──► Snapshot table
+                                  (if version % N === 0)
+
+  Reload path
+  ───────────
+
+  findOne()
+      │
+      ├── Load snapshot (if exists)
+      │
+      ├── Load events after snapshot version
+      │
+      └── Replay events on top of snapshot → entity state
+```
+
+- **Events** are written on every commit. They are the source of truth.
+- **Views** are updated on every commit, in the same transaction. They serve queries.
+- **Snapshots** are written periodically. They accelerate reloads.
+
+Each has a clear role. Events never lie. Views are always in sync. Snapshots are disposable.
+
+## Choosing What You Need
+
+Not every system needs all three from day one:
+
+| Stage | What you need | Why |
+|---|---|---|
+| **Starting out** | Events only | Simple, correct, and sufficient for low-volume entities |
+| **Adding queries** | Events + Views | When you need to query by fields other than `entityId` |
+| **Scaling reads** | Events + Views + Snapshots | When entities accumulate hundreds of events and reload becomes slow |
+
+Start simple. Add views when your query patterns demand them. Add snapshots when your event counts warrant them. The event log is always there as your foundation — everything else is built on top.

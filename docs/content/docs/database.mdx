@@ -95,3 +95,7 @@ const repository = createRepository(User, { adapter });
 <Callout type="info">
 Implement the adapter for your database of choice (MongoDB, PostgreSQL, MySQL, Redis, etc.) and you're ready to go!
 </Callout>
+
+<Callout type="warn">
+In production, `commitEvents()` often needs to do more than just insert events — updating a read model, saving snapshots, and handling concurrent writes all need to happen atomically. When these operations aren't in one transaction, a crash between steps can leave your read model out of sync with your event log. See [Transactions](/docs/transactions) for how to handle this.
+</Callout>
