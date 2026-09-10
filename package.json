@@ -125,5 +125,6 @@
   "publishConfig": {
     "access": "public",
     "provenance": true
-  }
+  },
+  "packageManager": "yarn@4.18.0"
 }
